@@ -42,6 +42,11 @@ public class TurYoneticisi : MonoBehaviour
         tarih = tarih.AddDays(turBasinaGun);
         turSayisi++;
         KaynaklariTopla();
+        OrdulariBesle();
+
+        // Tur bitince haritadaki seçimleri temizle
+        HaritaSecici secici = FindAnyObjectByType<HaritaSecici>();
+        if (secici != null) secici.SecimleriTemizle();
         EkraniGuncelle();
         Debug.Log("Yeni tur başladı: " + turSayisi);
 
@@ -58,6 +63,21 @@ public class TurYoneticisi : MonoBehaviour
         {
             para += s.paraUretimi;
             erzak += s.erzakUretimi;
+        }
+    }
+
+    // Her ordu hazineden erzak yer. Erzak yetmezse ordu aç kalır ve morali düşer.
+    private void OrdulariBesle()
+    {
+        foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None))
+        {
+            bool yetti = erzak >= o.erzakTuketimi;
+            if (yetti)
+                erzak -= o.erzakTuketimi;
+            else
+                Debug.LogWarning(o.orduAdi + " aç kaldı! Moral düşüyor.");
+
+            o.YeniTur(yetti);
         }
     }
 
