@@ -9,6 +9,10 @@ public class Sancak : MonoBehaviour
     public Color normalRenk = new Color(0.3f, 0.6f, 0.3f);   // yeşil
     public Color seciliRenk = new Color(0.9f, 0.8f, 0.2f);   // sarı
 
+    // Bu sancağın her tur ürettiği kaynaklar
+    public int paraUretimi = 10;
+    public int erzakUretimi = 10;
+
     private Renderer gorunum;
 
     // Oyun başladığında bir kez çalışır
@@ -22,7 +26,7 @@ public class Sancak : MonoBehaviour
     public void Sec()
     {
         gorunum.material.color = seciliRenk;
-        Debug.Log(sancakAdi + " seçildi");
+        Debug.Log(sancakAdi + " seçildi  |  Her tur: +" + paraUretimi + " para, +" + erzakUretimi + " erzak");
     }
 
     // Başka bir sancak seçilince bu sancağın seçimi kaldırılır
