@@ -365,7 +365,7 @@ public class MuharebeYoneticisi : MonoBehaviour
             {
                 // Göğüs göğüse (süngü)
                 Alay h = (a.hedefAlay != null && a.hedefAlay.Savasabilir && Mesafe(a, a.hedefAlay) <= Alay.TemasMesafesi + 0.5f) ? a.hedefAlay : yakin;
-                float z = a.adam * 0.010f * a.verim * moralCarpani * Kanat(a, h) * (a.hucum ? 1.3f : 1f) * Random.Range(0.75f, 1.25f) / SiperEtkisi(h);
+                float z = a.adam * 0.006f * a.verim * moralCarpani * Kanat(a, h) * (a.hucum ? 1.3f : 1f) * Random.Range(0.75f, 1.25f) / SiperEtkisi(h);
                 Ekle(kayip, h, z);
                 gogusGoguse.Add(a); gogusGoguse.Add(h);
             }
@@ -403,8 +403,8 @@ public class MuharebeYoneticisi : MonoBehaviour
             float z = kayip.ContainsKey(a) ? Mathf.Min(kayip[a], a.adam) : 0f;
             a.adam -= z;
             if (a.durum != Alay.Durum.Hazir) continue;
-            if (z > 0f) a.moral -= z / Mathf.Max(1f, a.baslangic) * 100f * 1.4f;
-            if (gogusGoguse.Contains(a)) a.moral -= 0.5f;
+            if (z > 0f) a.moral -= z / Mathf.Max(1f, a.baslangic) * 100f * 0.9f;
+            if (gogusGoguse.Contains(a)) a.moral -= 0.3f;
             if (z <= 0f && !gogusGoguse.Contains(a)) a.moral = Mathf.Min(100f, a.moral + 0.35f);
             if (a.moral < 15f || a.adam < a.baslangic * 0.2f) Bozul(a);
         }
@@ -509,6 +509,15 @@ public class MuharebeYoneticisi : MonoBehaviour
 
         bool arayuzde = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
         Vector2 fp = m.position.ReadValue();
+
+        // Seçili alay varken fare düşmanın üzerindeyse imleç kılıca döner
+        bool dusmanUstunde = false;
+        if (secili.Count > 0 && !arayuzde)
+        {
+            Alay alt = FaredekiAlay(fp, out _);
+            dusmanUstunde = alt != null && !alt.oyuncunun && alt.Savasabilir;
+        }
+        KilicImleci(dusmanUstunde);
 
         // Sol tık: seç, sürükle: kutuyla seç
         if (m.leftButton.wasPressedThisFrame && !arayuzde) { surukleBaslangic = fp; surukleniyor = true; }
@@ -704,6 +713,7 @@ public class MuharebeYoneticisi : MonoBehaviour
         bitti = true;
         Time.timeScale = 0f;
         SecimiTemizle();
+        KilicImleci(false);
 
         float kalanS = 0f, kalanD = 0f;
         foreach (Alay a in alaylar)
@@ -730,8 +740,58 @@ public class MuharebeYoneticisi : MonoBehaviour
         Dugme(p, "Haritaya Dön", new Vector2(0.5f, 0f), new Vector2(0f, 70f), new Vector2(380f, 84f), Kapat, 32f);
     }
 
+    // ---------- Kılıç imleci ----------
+
+    static Texture2D kilicDokusu;
+    bool kilicAcik;
+
+    void KilicImleci(bool ac)
+    {
+        if (ac == kilicAcik) return;
+        kilicAcik = ac;
+        if (ac) Cursor.SetCursor(KilicDokusu(), new Vector2(2f, 2f), CursorMode.Auto);
+        else Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
+    }
+
+    // 32x32 çapraz kılıç: ucu sol üstte (imlecin tıklayan noktası)
+    static Texture2D KilicDokusu()
+    {
+        if (kilicDokusu != null) return kilicDokusu;
+        const int B = 32;
+        Texture2D t = new Texture2D(B, B, TextureFormat.RGBA32, false);
+        t.filterMode = FilterMode.Point;
+        Color bos = new Color(0f, 0f, 0f, 0f);
+        Color[] p = new Color[B * B];
+        for (int i = 0; i < p.Length; i++) p[i] = bos;
+        Color siyah = new Color(0.05f, 0.04f, 0.03f, 1f), gumus = new Color(0.88f, 0.9f, 0.94f, 1f),
+              altin = new Color(0.85f, 0.65f, 0.2f, 1f), kahve = new Color(0.4f, 0.22f, 0.1f, 1f);
+        // Önce kalın siyah dış çizgi, sonra renkler
+        Cizgi(p, B, 2, 2, 21, 21, 2.4f, siyah); Cizgi(p, B, 14, 25, 25, 14, 2.4f, siyah);
+        Cizgi(p, B, 21, 21, 28, 28, 2.4f, siyah);
+        Cizgi(p, B, 2, 2, 21, 21, 1.2f, gumus); Cizgi(p, B, 14, 25, 25, 14, 1.2f, altin);
+        Cizgi(p, B, 21, 21, 27, 27, 1.1f, kahve); Cizgi(p, B, 28, 28, 28.5f, 28.5f, 1.4f, altin);
+        t.SetPixels(p);
+        t.Apply();
+        kilicDokusu = t;
+        return t;
+    }
+
+    // Sol üst köşeye göre (x sağa, y aşağı) kalın bir çizgi çizer
+    static void Cizgi(Color[] p, int B, float x0, float y0, float x1, float y1, float kalinlik, Color c)
+    {
+        Vector2 a = new Vector2(x0, y0), b = new Vector2(x1, y1), ab = b - a;
+        for (int y = 0; y < B; y++)
+            for (int x = 0; x < B; x++)
+            {
+                Vector2 q = new Vector2(x + 0.5f, y + 0.5f);
+                float u = ab.sqrMagnitude < 0.001f ? 0f : Mathf.Clamp01(Vector2.Dot(q - a, ab) / ab.sqrMagnitude);
+                if (Vector2.Distance(q, a + ab * u) <= kalinlik) p[(B - 1 - y) * B + x] = c;
+            }
+    }
+
     void Kapat()
     {
+        KilicImleci(false);
         Time.timeScale = 1f;
         if (kok != null) Destroy(kok);
         if (savasCanvas != null) Destroy(savasCanvas.gameObject);

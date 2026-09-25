@@ -38,6 +38,7 @@ public class Alay : MonoBehaviour
     Transform bayrak;
     TextMeshPro yazi;
     LineRenderer cerceve;
+    LineRenderer emirCizgisi;      // emir oku: yürürken beyaz, saldırırken kırmızı
     bool secili;
     float adimSaati;
 
@@ -140,6 +141,16 @@ public class Alay : MonoBehaviour
         BoxCollider kutu = gameObject.AddComponent<BoxCollider>();
         kutu.size = new Vector3(Genislik + 0.6f, 2.4f, Sira * AraZ + 0.8f);
         kutu.center = new Vector3(0f, 1.1f, 0f);
+        // Emir oku
+        GameObject ok = new GameObject("EmirOku");
+        ok.transform.SetParent(transform.parent, false);
+        emirCizgisi = ok.AddComponent<LineRenderer>();
+        emirCizgisi.material = cerceve.material;
+        emirCizgisi.useWorldSpace = true;
+        emirCizgisi.numCapVertices = 2;
+        emirCizgisi.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        emirCizgisi.enabled = false;
+
         SecimGoster(false);
     }
 
@@ -259,6 +270,8 @@ public class Alay : MonoBehaviour
         cerceve.startColor = cerceve.endColor = renk;
         cerceve.widthMultiplier = secili ? 0.18f : 0.1f;
 
+        EmirOkunuCiz();
+
         // Yazı: kameraya dönük
         Camera kam = Camera.main;
         yazi.transform.position = transform.position + Vector3.up * 3.6f;
@@ -269,6 +282,43 @@ public class Alay : MonoBehaviour
                   + (cephane <= 0f ? "  <color=#f99>cephane yok</color>" : "");
         yazi.color = secili ? new Color(1f, 0.92f, 0.5f) : Color.white;
         bayrak.localRotation = Quaternion.Euler(0f, Mathf.Sin(Time.time * 2f + baslangic) * 8f, 0f);
+    }
+
+    // Seçili alayın emrini gösteren, araziyi izleyen ok
+    void EmirOkunuCiz()
+    {
+        if (emirCizgisi == null) return;
+        bool saldiri = hedefAlay != null && hedefAlay.Savasabilir;
+        Vector3 bas = transform.position, son = saldiri ? hedefAlay.transform.position : hedefNokta;
+        Vector3 fark = son - bas; fark.y = 0f;
+        float uzunluk = fark.magnitude;
+        if (!secili || !oyuncunun || durum != Durum.Hazir || uzunluk < 1.5f) { emirCizgisi.enabled = false; return; }
+
+        // Ok, alayın önünden başlayıp hedefin biraz önünde biter
+        Vector3 yon = fark / uzunluk;
+        bas += yon * 1.8f;
+        son -= yon * (saldiri ? 2.2f : 0.3f);
+        uzunluk = Vector3.Distance(new Vector3(bas.x, 0f, bas.z), new Vector3(son.x, 0f, son.z));
+        if (uzunluk < 0.5f) { emirCizgisi.enabled = false; return; }
+
+        int n = Mathf.Clamp(Mathf.CeilToInt(uzunluk / 0.8f) + 1, 2, 120);
+        emirCizgisi.positionCount = n;
+        for (int i = 0; i < n; i++)
+            emirCizgisi.SetPosition(i, MuharebeAlani.Uzerinde(Vector3.Lerp(bas, son, i / (float)(n - 1)), 0.25f));
+
+        // Ucu ok başı: son 1,6 birimde genişleyip sivrilir
+        float t = Mathf.Clamp01(1f - 1.6f / uzunluk);
+        float govde = saldiri ? 0.35f : 0.25f;
+        AnimationCurve egri = new AnimationCurve(
+            new Keyframe(0f, govde), new Keyframe(t, govde), new Keyframe(Mathf.Min(0.999f, t + 0.001f), govde * 3.2f), new Keyframe(1f, 0f));
+        emirCizgisi.widthCurve = egri;
+        emirCizgisi.widthMultiplier = 1f;
+
+        Color renk = saldiri ? (hucum ? new Color(1f, 0.15f, 0.1f, 0.95f) : new Color(0.9f, 0.12f, 0.1f, 0.8f))
+                             : new Color(1f, 1f, 1f, 0.8f);
+        emirCizgisi.startColor = new Color(renk.r, renk.g, renk.b, renk.a * 0.35f);
+        emirCizgisi.endColor = renk;
+        emirCizgisi.enabled = true;
     }
 
     // Bir figür vurulur: yere yatar ve öylece kalır
@@ -302,6 +352,7 @@ public class Alay : MonoBehaviour
     public void Temizle()
     {
         foreach (Transform f in figurler) if (f != null) Destroy(f.gameObject);
+        if (emirCizgisi != null) Destroy(emirCizgisi.gameObject);
         Destroy(gameObject);
     }
 }
