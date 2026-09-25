@@ -26,6 +26,14 @@ public class Sancak : MonoBehaviour
 
     public bool KomsuMu(Sancak diger) { return komsular.Contains(diger); }
 
+    // Adıyla bir sancak bulur (yoksa null)
+    public static Sancak Bul(string ad)
+    {
+        foreach (Sancak s in FindObjectsByType<Sancak>(FindObjectsSortMode.None))
+            if (s.sancakAdi == ad) return s;
+        return null;
+    }
+
     public void SahipDegistir(Taraf yeniSahip)
     {
         sahip = yeniSahip;

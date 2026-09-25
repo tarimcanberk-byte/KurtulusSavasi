@@ -24,7 +24,7 @@ public static class Savas
             {
                 Taraf eski = hedef.sahip;
                 hedef.SahipDegistir(saldiran.taraf);
-                return "<color=#9f9>" + hedef.sancakAdi + " " + TarafBilgi.Ad(eski) + " elinden alındı!</color>";
+                return Renkli(hedef.sancakAdi + ", " + TarafBilgi.Ad(eski) + " elinden alındı! (" + saldiran.orduAdi + ")", saldiran.OyuncununMu);
             }
             return saldiran.orduAdi + " yürüdü → " + hedef.sancakAdi;
         }
@@ -70,12 +70,26 @@ public static class Savas
                 if (hedef.sahip != saldiran.taraf)
                 {
                     hedef.SahipDegistir(saldiran.taraf);
-                    rapor += "\n<color=#9f9>" + hedef.sancakAdi + " ele geçirildi!</color>";
+                    rapor += "\n" + hedef.sancakAdi + " " + TarafBilgi.Ad(saldiran.taraf) + " eline geçti!";
                 }
             }
-            return rapor;
         }
-        return "<color=#f99>" + rapor + "</color>";
+        // Bizim için iyi sonuç yeşil, kötü sonuç kırmızı
+        bool bizimIcinIyi = (kazandi == saldiran.OyuncununMu);
+        return Renkli(rapor, bizimIcinIyi);
+    }
+
+    // Bir sancaktaki belli bir tarafın toplam savaş gücü
+    public static float TarafGucu(Sancak s, Taraf t)
+    {
+        float g = 0f;
+        foreach (Ordu o in s.Ordular()) if (o.taraf == t) g += o.Guc;
+        return g;
+    }
+
+    static string Renkli(string metin, bool iyi)
+    {
+        return (iyi ? "<color=#9f9>" : "<color=#f99>") + metin + "</color>";
     }
 
     // Yenilen ordunun çekilebileceği, kendi tarafına ait ve düşmansız bir komşu sancak

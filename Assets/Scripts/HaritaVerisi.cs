@@ -86,6 +86,9 @@ public static class HaritaVerisi
     public static readonly string[,] EkKomsuluklar =
     {
         { "Sivas", "Erzincan" },
+        { "Eskişehir", "Ankara" },    // Sakarya hattı: Eskişehir-Polatlı-Ankara demiryolu
+        { "Afyon", "Ankara" },        // Sivrihisar-Polatlı üzerinden
+        { "Konya", "Ankara" },
         { "Diyarbakır", "Van" },
         { "Erzurum", "Van" },
     };

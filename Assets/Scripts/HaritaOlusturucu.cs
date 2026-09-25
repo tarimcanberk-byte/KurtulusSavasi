@@ -15,6 +15,10 @@ public class HaritaOlusturucu : MonoBehaviour
 
     void Awake()
     {
+        // Önceki oyundan kalan durumu temizle
+        Diplomasi.Sifirla();
+        TarihselOlaylar.Sifirla();
+
         SancaklariKur();
         KomsulariKur();
         YollariCiz();

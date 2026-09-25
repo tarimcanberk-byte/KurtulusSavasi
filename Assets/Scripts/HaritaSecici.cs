@@ -89,6 +89,18 @@ public class HaritaSecici : MonoBehaviour
         DugmeleriGuncelle();
     }
 
+    // Barış halindeki bir tarafa saldırmadan önce onay istemek için
+    private Sancak onayBekleyenHedef;
+
+    // Hedef sancakta barış halinde olduğumuz bir taraf varsa onu döndürür
+    static Taraf? BaristakiTaraf(Sancak hedef)
+    {
+        foreach (Ordu o in hedef.Ordular())
+            if (!o.OyuncununMu && !Diplomasi.SavastaMi(o.taraf)) return o.taraf;
+        if (hedef.sahip != Taraf.Turk && !Diplomasi.SavastaMi(hedef.sahip)) return hedef.sahip;
+        return null;
+    }
+
     // Seçili orduya "şuraya git" emri ver
     void Emret(Sancak hedef)
     {
@@ -97,8 +109,25 @@ public class HaritaSecici : MonoBehaviour
             BilgiGoster("<color=#ff8080>" + neden + "</color>\n" + seciliOrdu.BilgiMetni());
             return;
         }
+
+        string savasRaporu = "";
+        Taraf? baristaki = BaristakiTaraf(hedef);
+        if (baristaki.HasValue)
+        {
+            if (onayBekleyenHedef != hedef)
+            {
+                onayBekleyenHedef = hedef;
+                BilgiGoster("<color=#ffb080><b>Dikkat:</b> " + hedef.sancakAdi + " " + TarafBilgi.Ad(baristaki.Value)
+                    + " kontrolünde ve onunla savaşta değiliz.\nSaldırırsan " + TarafBilgi.Ad(baristaki.Value)
+                    + " savaşa girer ve takviye çıkarır. Onaylamak için tekrar sağ tıkla.</color>");
+                return;
+            }
+            foreach (string satir in Diplomasi.SavasIlanEt(baristaki.Value)) savasRaporu += satir + "\n";
+        }
+        onayBekleyenHedef = null;
+
         Ordu ordu = seciliOrdu;
-        string sonuc = Savas.Ilerle(ordu, hedef);
+        string sonuc = savasRaporu + Savas.Ilerle(ordu, hedef);
         Debug.Log(sonuc);
         SecimleriTemizle();
         BilgiGoster(sonuc + (ordu != null && ordu.Yasiyor ? "\n" + ordu.BilgiMetni() : ""));
@@ -110,6 +139,7 @@ public class HaritaSecici : MonoBehaviour
         foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None)) o.SecimiKaldir();
         seciliOrdu = null;
         seciliSancak = null;
+        onayBekleyenHedef = null;
         DugmeleriGuncelle();
     }
 
@@ -182,15 +212,7 @@ public class HaritaSecici : MonoBehaviour
         }
         else
         {
-            GameObject kup = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            kup.transform.localScale = Vector3.one * 0.35f;
-            Ordu yeni = kup.AddComponent<Ordu>();
-            yeni.orduAdi = seciliSancak.sancakAdi + " Kuva-yi Milliyesi";
-            kup.name = yeni.orduAdi;
-            yeni.taraf = Taraf.Turk;
-            yeni.askerSayisi = birlikBuyuklugu;
-            yeni.moral = 80;
-            yeni.bulunduguSancak = seciliSancak;
+            Ordu yeni = Ordu.Olustur(seciliSancak.sancakAdi + " Kuva-yi Milliyesi", Taraf.Turk, birlikBuyuklugu, seciliSancak, 80);
             yeni.HareketHakkiniKullan();   // yeni kurulan birlik bu tur yürüyemez
             mesaj = yeni.orduAdi + " kuruldu.";
         }
@@ -227,6 +249,15 @@ public class HaritaSecici : MonoBehaviour
 
         OrduSec(ana);
         BilgiGoster("<color=#9f9>" + katilan + " birlik " + ana.orduAdi + " içinde birleşti.</color>\n" + ana.BilgiMetni());
+    }
+
+    // Tur sonunda düşman hamlelerini sol altta listeler
+    public void TurRaporuGoster(string tarih, List<string> rapor)
+    {
+        string metin = "<b>Tur raporu — " + tarih + "</b>";
+        if (rapor.Count == 0) metin += "\nCephelerde sessizlik.";
+        foreach (string satir in rapor) metin += "\n• " + satir;
+        BilgiGoster(metin);
     }
 
     void BilgiGoster(string metin)

@@ -17,8 +17,9 @@ public class Ordu : MonoBehaviour
     public bool OyuncununMu    { get { return taraf == Taraf.Turk; } }
     public bool Yasiyor        { get { return yasiyor; } }
 
-    // Her 250 asker her tur 1 erzak yer
-    public int ErzakTuketimi   { get { return Mathf.CeilToInt(askerSayisi / 250f); } }
+    // Her 100 asker her tur 1 erzak yer, her 200 asker 1 para maaş alır
+    public int ErzakTuketimi   { get { return Mathf.CeilToInt(askerSayisi / 100f); } }
+    public int MaasGideri      { get { return Mathf.CeilToInt(askerSayisi / 200f); } }
 
     // Savaş gücü: asker sayısı ve moralin birleşimi
     public float Guc           { get { return askerSayisi * (0.5f + moral / 200f); } }
@@ -26,6 +27,23 @@ public class Ordu : MonoBehaviour
     void Awake()
     {
         gorunum = GetComponent<Renderer>();
+    }
+
+    // Yeni bir ordu oluşturur (harita kurulurken, birlik toplanırken, düşman takviyesinde)
+    public static Ordu Olustur(string ad, Taraf taraf, int asker, Sancak sancak, int moral = 100)
+    {
+        GameObject kup = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        kup.name = ad;
+        kup.transform.localScale = Vector3.one * 0.35f;
+        Ordu o = kup.AddComponent<Ordu>();
+        o.orduAdi = ad;
+        o.taraf = taraf;
+        o.askerSayisi = asker;
+        o.moral = moral;
+        o.bulunduguSancak = sancak;
+        o.gorunum.material.color = TarafBilgi.OrduRengi(taraf);
+        sancak.OrdulariDiz();
+        return o;
     }
 
     void Start()
@@ -99,7 +117,7 @@ public class Ordu : MonoBehaviour
             if (dusmanlar != "") durum += "\n<color=#ffb080>Komşu düşmanlar:</color>" + dusmanlar;
         }
         return "<b>" + orduAdi + "</b>  (" + bulunduguSancak.sancakAdi + ")  —  " + TarafBilgi.Ad(taraf) + "\n"
-             + "Asker: " + askerSayisi + "   Moral: " + moral + "   <b>Güç: " + Mathf.RoundToInt(Guc) + "</b>   Erzak gideri: " + ErzakTuketimi + "/tur\n"
+             + "Asker: " + askerSayisi + "   Moral: " + moral + "   <b>Güç: " + Mathf.RoundToInt(Guc) + "</b>\nTur başına gider: " + ErzakTuketimi + " erzak, " + MaasGideri + " para\n"
              + durum;
     }
 }
