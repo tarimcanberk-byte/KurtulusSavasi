@@ -4,72 +4,102 @@ using UnityEngine;
 public class Ordu : MonoBehaviour
 {
     public string orduAdi = "20. Kolordu";
-    public Sancak bulunduguSancak;     // Oyun başladığında ordunun durduğu sancak
+    public Taraf taraf = Taraf.Turk;
+    public Sancak bulunduguSancak;
     public int askerSayisi = 5000;
     public int moral = 100;            // 0 - 100 arası
-    public int erzakTuketimi = 20;     // Her tur hazineden yediği erzak
 
-    public Color normalRenk = new Color(0.7f, 0.1f, 0.1f);   // koyu kırmızı
-    public Color seciliRenk = new Color(1f, 0.45f, 0.45f);   // açık kırmızı
-
-    private bool hareketHakki = true;  // Bu tur hâlâ hareket edebilir mi?
+    private bool hareketHakki = true;
+    private bool yasiyor = true;
     private Renderer gorunum;
 
     public bool HareketHakkiVar { get { return hareketHakki; } }
+    public bool OyuncununMu    { get { return taraf == Taraf.Turk; } }
+    public bool Yasiyor        { get { return yasiyor; } }
+
+    // Her 250 asker her tur 1 erzak yer
+    public int ErzakTuketimi   { get { return Mathf.CeilToInt(askerSayisi / 250f); } }
+
+    // Savaş gücü: asker sayısı ve moralin birleşimi
+    public float Guc           { get { return askerSayisi * (0.5f + moral / 200f); } }
 
     void Awake()
     {
         gorunum = GetComponent<Renderer>();
-        gorunum.material.color = normalRenk;
     }
 
     void Start()
     {
-        if (bulunduguSancak != null)
-            SancagaYerles(bulunduguSancak);
+        gorunum.material.color = TarafBilgi.OrduRengi(taraf);
+        if (bulunduguSancak != null) bulunduguSancak.OrdulariDiz();
     }
 
-    // Ordu hedef sancağa gidebilir mi? Gidemiyorsa nedenini "neden" içine yazar.
     public bool HareketEdebilirMi(Sancak hedef, out string neden)
     {
         neden = "";
-        if (!hareketHakki)                    { neden = orduAdi + " bu tur zaten hareket etti."; return false; }
-        if (hedef == bulunduguSancak)         { neden = orduAdi + " zaten bu sancakta."; return false; }
-        if (!bulunduguSancak.KomsuMu(hedef))  { neden = hedef.sancakAdi + " ile " + bulunduguSancak.sancakAdi + " komşu değil."; return false; }
+        if (!OyuncununMu)                    { neden = "Bu senin ordun değil."; return false; }
+        if (!hareketHakki)                   { neden = orduAdi + " bu tur zaten hareket etti."; return false; }
+        if (hedef == bulunduguSancak)        { neden = orduAdi + " zaten bu sancakta."; return false; }
+        if (!bulunduguSancak.KomsuMu(hedef)) { neden = hedef.sancakAdi + " ile " + bulunduguSancak.sancakAdi + " komşu değil."; return false; }
         return true;
     }
 
-    public void HareketEt(Sancak hedef)
+    // Orduyu başka bir sancağa taşır ve iki sancaktaki dizilişi düzeltir
+    public void Yerles(Sancak yeni)
     {
-        SancagaYerles(hedef);
-        hareketHakki = false;
-        Debug.Log(orduAdi + " yürüdü → " + hedef.sancakAdi);
+        Sancak eski = bulunduguSancak;
+        bulunduguSancak = yeni;
+        if (eski != null) eski.OrdulariDiz();
+        yeni.OrdulariDiz();
     }
 
-    // Orduyu sancağın tam üstüne koyar
-    private void SancagaYerles(Sancak s)
+    public void HareketHakkiniKullan() { hareketHakki = false; }
+
+    public void KayipVer(int kayip)
     {
-        bulunduguSancak = s;
-        transform.position = s.transform.position + Vector3.up * 0.5f;
+        askerSayisi = Mathf.Max(0, askerSayisi - kayip);
+        if (askerSayisi < 200) YokOl();
     }
 
-    // Yeni tur başladığında Tur Yöneticisi bunu çağırır
+    public void MoralDegistir(int miktar) { moral = Mathf.Clamp(moral + miktar, 0, 100); }
+
+    public void YokOl()
+    {
+        yasiyor = false;
+        Sancak s = bulunduguSancak;
+        gameObject.SetActive(false);
+        Destroy(gameObject);
+        if (s != null) s.OrdulariDiz();
+    }
+
     public void YeniTur(bool erzakYetti)
     {
         hareketHakki = true;
-        if (erzakYetti)
-            moral = Mathf.Min(100, moral + 5);    // karnı tok: moral toparlanır
-        else
-            moral = Mathf.Max(0, moral - 15);     // aç kaldı: moral düşer
+        MoralDegistir(erzakYetti ? 5 : -15);
     }
 
-    public void Sec()          { gorunum.material.color = seciliRenk; }
-    public void SecimiKaldir() { gorunum.material.color = normalRenk; }
+    public void Sec()          { gorunum.material.color = Color.Lerp(TarafBilgi.OrduRengi(taraf), Color.white, 0.45f); }
+    public void SecimiKaldir() { gorunum.material.color = TarafBilgi.OrduRengi(taraf); }
 
     public string BilgiMetni()
     {
-        return "<b>" + orduAdi + "</b>  (" + bulunduguSancak.sancakAdi + ")\n"
-             + "Asker: " + askerSayisi + "   Moral: " + moral + "   Erzak gideri: " + erzakTuketimi + "/tur\n"
-             + (hareketHakki ? "Gitmek istediğin mavi sancağa tıkla." : "Bu tur hareket etti.");
+        string durum = !OyuncununMu ? "Düşman birliği."
+                     : hareketHakki ? "Sağ tık: mavi sancağa yürü, kırmızı sancağa saldır."
+                     : "Bu tur hareket etti.";
+
+        // Kendi ordumuzsa komşudaki düşmanların gücünü göster (saldırmadan önce karşılaştır)
+        if (OyuncununMu)
+        {
+            string dusmanlar = "";
+            foreach (Sancak k in bulunduguSancak.komsular)
+                foreach (Ordu o in k.Ordular())
+                    if (o.taraf != taraf)
+                        dusmanlar += "\n   • " + o.orduAdi + " (" + k.sancakAdi + ")  Güç: " + Mathf.RoundToInt(o.Guc)
+                                   + "  <size=80%>savunmada ≈ " + Mathf.RoundToInt(o.Guc * 1.2f) + "</size>";
+            if (dusmanlar != "") durum += "\n<color=#ffb080>Komşu düşmanlar:</color>" + dusmanlar;
+        }
+        return "<b>" + orduAdi + "</b>  (" + bulunduguSancak.sancakAdi + ")  —  " + TarafBilgi.Ad(taraf) + "\n"
+             + "Asker: " + askerSayisi + "   Moral: " + moral + "   <b>Güç: " + Mathf.RoundToInt(Guc) + "</b>   Erzak gideri: " + ErzakTuketimi + "/tur\n"
+             + durum;
     }
 }

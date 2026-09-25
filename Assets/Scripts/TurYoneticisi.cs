@@ -61,6 +61,7 @@ public class TurYoneticisi : MonoBehaviour
 
         foreach (Sancak s in sancaklar)
         {
+            if (s.sahip != Taraf.Turk) continue;   // yalnızca bizim sancaklarımız bize üretir
             para += s.paraUretimi;
             erzak += s.erzakUretimi;
         }
@@ -71,9 +72,11 @@ public class TurYoneticisi : MonoBehaviour
     {
         foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None))
         {
-            bool yetti = erzak >= o.erzakTuketimi;
+            if (!o.OyuncununMu) { o.YeniTur(true); continue; }   // düşman ordularını şimdilik kendileri besliyor
+
+            bool yetti = erzak >= o.ErzakTuketimi;
             if (yetti)
-                erzak -= o.erzakTuketimi;
+                erzak -= o.ErzakTuketimi;
             else
                 Debug.LogWarning(o.orduAdi + " aç kaldı! Moral düşüyor.");
 
@@ -82,11 +85,20 @@ public class TurYoneticisi : MonoBehaviour
     }
 
     // Ekrandaki tarih yazısını günceller
-    private void EkraniGuncelle()
+    public void EkraniGuncelle()
     {
         tarihYazisi.text = tarih.Day + " " + aylar[tarih.Month - 1] + " " + tarih.Year
                            + "   |   Tur " + turSayisi
                            + "   |   Para: " + para
-                           + "   |   Erzak: " + erzak;
+                           + "   |   Erzak: " + erzak
+                           + "   |   Sancak: " + TurkSancakSayisi();
+    }
+
+    int TurkSancakSayisi()
+    {
+        int n = 0;
+        foreach (Sancak s in FindObjectsByType<Sancak>(FindObjectsSortMode.None))
+            if (s.sahip == Taraf.Turk) n++;
+        return n;
     }
 }
