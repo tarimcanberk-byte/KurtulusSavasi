@@ -17,7 +17,7 @@ public static class OyunSonuPaneli
         RectTransform pr = panel.GetComponent<RectTransform>();
         pr.anchorMin = Vector2.zero; pr.anchorMax = Vector2.one;
         pr.offsetMin = Vector2.zero; pr.offsetMax = Vector2.zero;
-        panel.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.85f);
+        panel.GetComponent<Image>().color = new Color(0.05f, 0.04f, 0.03f, 0.95f);
 
         // Yazı
         GameObject yaziGO = new GameObject("Metin", typeof(RectTransform));
@@ -31,8 +31,8 @@ public static class OyunSonuPaneli
         yr.offsetMin = Vector2.zero; yr.offsetMax = Vector2.zero;
 
         if (devamEdilebilir)
-            Dugme(panel.transform, "Oynamaya devam et", new Vector2(-180f, 120f), () => Object.Destroy(panel));
-        Dugme(panel.transform, "Yeniden başla", new Vector2(devamEdilebilir ? 180f : 0f, 120f),
+            Dugme(panel.transform, "Oynamaya devam et", new Vector2(-180f, 200f), () => Object.Destroy(panel));
+        Dugme(panel.transform, "Yeniden başla", new Vector2(devamEdilebilir ? 180f : 0f, 200f),
               () => SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex));
     }
 
@@ -48,5 +48,6 @@ public static class OyunSonuPaneli
         t.text = yazi;
         t.fontSize = 28;
         d.GetComponent<Button>().onClick.AddListener(islem);
+        ArayuzYardimci.DugmeStili(d.GetComponent<Button>());
     }
 }

@@ -43,6 +43,7 @@ public static class DusmanYapayZeka
         {
             if (o == null || !o.Yasiyor || o.OyuncununMu) continue;
             if (!Diplomasi.SavastaMi(o.taraf)) continue;   // barıştaki taraflar saldırmaz
+            if (o.HareketHalinde) continue;                  // zaten yürüyor
             if (Random.value > Saldirganlik(o.taraf)) continue;
 
             Sancak hedef = HedefSec(o);
@@ -56,8 +57,10 @@ public static class DusmanYapayZeka
                 o.askerSayisi -= 2000;
             }
 
-            string sonuc = Savas.Ilerle(yuruyen, hedef);
-            rapor.Add(sonuc.Replace("\n", " "));
+            // Artık savaş anında olmaz: ordu yürüyüşe geçer, varınca çarpışır
+            yuruyen.YurumeBaslat(hedef);
+            if (hedef.sahip == Taraf.Turk && yuruyen.askerSayisi >= 5000)
+                rapor.Add("<color=#fc8>" + yuruyen.orduAdi + " (" + yuruyen.askerSayisi + ") " + hedef.sancakAdi + " yönünde ilerliyor.</color>");
         }
         return rapor;
     }
@@ -73,7 +76,7 @@ public static class DusmanYapayZeka
             if (!turkBolgesi) continue;
 
             // Sadece açıkça daha güçlüyse saldır (savunma bonusu + güvenlik payı)
-            float savunma = TurkGucu(k) * 1.2f;
+            float savunma = Savas.SavunmaGucu(k, Taraf.Turk);
             if (o.Guc < savunma * 1.3f) continue;
 
             float puan = k.paraUretimi + k.erzakUretimi + (savunma == 0f ? 20f : 0f) + Random.value * 10f;

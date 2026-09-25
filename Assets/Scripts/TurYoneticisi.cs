@@ -2,17 +2,19 @@ using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
-// Oyunun zamanını ve ekonomisini yönetir.
-// Her "Turu Bitir" tıklamasında: tarihî olaylar → düşman hamleleri → gelir → giderler → oyun sonu kontrolü.
+// Zaman Yöneticisi (Hearts of Iron tarzı): zaman gün gün akar, oyuncu duraklatıp hızlandırabilir.
+//   Her gün   : ordular yürür ve çarpışır, otomatik emirler düşünür, tarihî olaylar kontrol edilir
+//   Her hafta : gelir, giderler, ikmal yıpranması, düşman kararları
+// (Sınıfın adı eski "tur" sisteminden kaldı; sahnedeki bağlantılar bozulmasın diye değiştirmedik.)
 public class TurYoneticisi : MonoBehaviour
 {
-    // Inspector'dan bağlanan arayüz parçaları
     public TMP_Text tarihYazisi;
-    public Button turuBitirDugmesi;
-
-    public int turBasinaGun = 14;     // 1 tur = 2 hafta
+    public Button turuBitirDugmesi;        // artık "Duraklat / Devam" düğmesi
+    public int turBasinaGun = 14;          // (eski ayar, kullanılmıyor)
 
     // Hazine
     public int para = 150;
@@ -21,19 +23,25 @@ public class TurYoneticisi : MonoBehaviour
     // Tekalif-i Milliye (acil durum kararı)
     public int tekalifPara = 300;
     public int tekalifErzak = 800;
-    public int tekalifSuresi = 6;          // kaç tur üretim düşük kalır
+    public int tekalifSuresiGun = 84;      // 12 hafta
     public float tekalifUretimCarpani = 0.75f;
 
+    // Hız: bir oyun gününün gerçek saniye karşılığı
+    private static readonly float[] gunSuresi = { 0f, 1.0f, 0.5f, 0.25f, 0.1f, 0.04f };
+    private int hiz = 2;
+    private bool duraklatildi = true;      // oyun duraklatılmış başlar
+    private float birikim = 0f;
+
     private DateTime tarih = new DateTime(1919, 5, 19);
-    private int turSayisi = 1;
-    private int tekalifKalanTur = 0;
+    private int gunSayisi = 0;
+    private int tekalifKalanGun = 0;
     private bool tekalifKullanildi = false;
     private Button tekalifDugmesi;
+    private TMP_Text duraklatYazisi;
 
-    // Oyun sonu takibi
     private bool oyunBitti = false;
-    private int ankarasizTur = 0;
-    private int ordusuzTur = 0;
+    private int ankarasizGun = 0;
+    private int ordusuzGun = 0;
 
     private static readonly string[] aylar =
     {
@@ -42,45 +50,150 @@ public class TurYoneticisi : MonoBehaviour
     };
 
     public string TarihYazisi { get { return tarih.Day + " " + aylar[tarih.Month - 1] + " " + tarih.Year; } }
+    public bool Duraklatildi { get { return duraklatildi; } }
+
+    void Awake()
+    {
+        Gunluk.Sifirla();
+        Gunluk.OlayEklendi += OlayGeldi;
+    }
+
+    void OnDestroy()
+    {
+        Gunluk.OlayEklendi -= OlayGeldi;
+    }
 
     void Start()
     {
-        turuBitirDugmesi.onClick.AddListener(TuruBitir);
+        turuBitirDugmesi.onClick.AddListener(DuraklatDevam);
+        ArayuzYardimci.DugmeStili(turuBitirDugmesi);
+        duraklatYazisi = turuBitirDugmesi.GetComponentInChildren<TMP_Text>();
+        Canvas canvas = FindAnyObjectByType<Canvas>();
+        if (canvas != null) ArayuzYardimci.UstSeritOlustur(canvas, 100f);
+        HizDugmesi(">>", new Vector2(-320f, 30f), () => HizDegistir(+1));
+        HizDugmesi("<<", new Vector2(-410f, 30f), () => HizDegistir(-1));
         TekalifDugmesiOlustur();
+        EkraniGuncelle();
+        Gunluk.Ekle("<b>19 Mayıs 1919.</b> Mustafa Kemal Samsun'a çıktı. Oyun duraklatıldı: başlatmak için <b>Boşluk</b> tuşuna ya da <b>Devam Et</b>'e bas.");
+    }
+
+    // ---------- Zaman kontrolü ----------
+
+    void Update()
+    {
+        // Seçili kalan düğmeler Boşluk tuşunu yutmasın
+        if (EventSystem.current != null && EventSystem.current.currentSelectedGameObject != null)
+            EventSystem.current.SetSelectedGameObject(null);
+
+        // Savaş ekranı ya da muharebe kararı açıkken harita zamanı donar
+        if (MuharebeYoneticisi.Mesgul) return;
+
+        Keyboard k = Keyboard.current;
+        if (k != null)
+        {
+            if (k.spaceKey.wasPressedThisFrame) DuraklatDevam();
+            if (k.digit1Key.wasPressedThisFrame) HizAyarla(1);
+            if (k.digit2Key.wasPressedThisFrame) HizAyarla(2);
+            if (k.digit3Key.wasPressedThisFrame) HizAyarla(3);
+            if (k.digit4Key.wasPressedThisFrame) HizAyarla(4);
+            if (k.digit5Key.wasPressedThisFrame) HizAyarla(5);
+            if (k.numpadPlusKey.wasPressedThisFrame || k.equalsKey.wasPressedThisFrame) HizDegistir(+1);
+            if (k.numpadMinusKey.wasPressedThisFrame || k.minusKey.wasPressedThisFrame) HizDegistir(-1);
+        }
+
+        if (duraklatildi || oyunBitti) return;
+        birikim += Time.deltaTime;
+        // Çok hızlıda bir karede birden fazla gün geçebilir; bir olay duraklatırsa hemen dur
+        while (birikim >= gunSuresi[hiz] && !duraklatildi && !oyunBitti)
+        {
+            birikim -= gunSuresi[hiz];
+            GunIlerle();
+        }
+    }
+
+    public void DuraklatDevam()
+    {
+        if (oyunBitti || MuharebeYoneticisi.Mesgul) return;
+        duraklatildi = !duraklatildi;
+        birikim = 0f;
         EkraniGuncelle();
     }
 
-    public void TuruBitir()
+    public void Duraklat() { duraklatildi = true; EkraniGuncelle(); }
+    public void Devam() { if (oyunBitti) return; duraklatildi = false; birikim = 0f; EkraniGuncelle(); }
+
+    void HizAyarla(int yeni) { hiz = Mathf.Clamp(yeni, 1, 5); EkraniGuncelle(); }
+    void HizDegistir(int fark) { HizAyarla(hiz + fark); }
+
+    void HizDugmesi(string yazi, Vector2 konum, UnityEngine.Events.UnityAction islem)
     {
-        tarih = tarih.AddDays(turBasinaGun);
-        turSayisi++;
+        Canvas canvas = FindAnyObjectByType<Canvas>();
+        if (canvas == null) return;
+        GameObject d = TMP_DefaultControls.CreateButton(new TMP_DefaultControls.Resources());
+        d.name = "HizDugmesi " + yazi;
+        d.transform.SetParent(canvas.transform, false);
+        RectTransform r = d.GetComponent<RectTransform>();
+        r.anchorMin = r.anchorMax = new Vector2(1f, 0f);
+        r.pivot = new Vector2(1f, 0f);
+        r.sizeDelta = new Vector2(80f, 80f);
+        r.anchoredPosition = konum;
+        TMP_Text t = d.GetComponentInChildren<TMP_Text>();
+        t.text = yazi;
+        t.fontSize = 32;
+        Button b = d.GetComponent<Button>();
+        b.onClick.AddListener(islem);
+        ArayuzYardimci.DugmeStili(b);
+    }
 
-        HaritaSecici secici = FindAnyObjectByType<HaritaSecici>();
-        if (secici != null) secici.SecimleriTemizle();
+    // Günlüğe önemli bir olay düşerse oyunu duraklat
+    void OlayGeldi(string metin, bool duraklat)
+    {
+        if (duraklat && !duraklatildi) Duraklat();
+    }
 
-        List<string> rapor = new List<string>();
-        rapor.AddRange(TarihselOlaylar.Kontrol(tarih, this));   // 1) Tarih akar
-        rapor.AddRange(DusmanYapayZeka.TurOyna());              // 2) Düşman hamle yapar
-        KaynaklariTopla();                                      // 3) Gelir
-        OrdulariBesle(rapor);                                   // 4) Giderler
-        if (tekalifKalanTur > 0) tekalifKalanTur--;
+    // ---------- Bir gün ----------
 
-        rapor.RemoveAll(string.IsNullOrEmpty);
+    void GunIlerle()
+    {
+        tarih = tarih.AddDays(1);
+        gunSayisi++;
+
+        // 1) Tarihî olaylar (her biri oyunu duraklatır)
+        foreach (string olay in TarihselOlaylar.Kontrol(tarih, this))
+            Gunluk.Ekle(olay, true);
+
+        // 2) Ordular yürür ve çarpışır
+        foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None))
+        {
+            if (!o.Yasiyor) continue;
+            if (o.OyuncununMu) o.OtomatikEmirleriUygula();
+            Taraf eskiSahipKontrol = Taraf.Turk;
+            Sancak hedef = o.SonrakiDurak;
+            bool hedefBizimdi = hedef != null && hedef.sahip == eskiSahipKontrol;
+            string sonuc = o.GunIlerle();
+            if (sonuc == null) continue;
+            // Bir Türk sancağı düştüyse ya da Türk ordusu dağıldıysa duraklat
+            bool kotu = hedefBizimdi && hedef.sahip != Taraf.Turk;
+            Gunluk.Ekle(sonuc.Replace("\n", " "), kotu);
+        }
+
+        // 3) Haftalık işler
+        if (gunSayisi % 7 == 0)
+        {
+            foreach (string satir in DusmanYapayZeka.TurOyna()) Gunluk.Ekle(satir);
+            HaftalikEkonomi();
+        }
+        if (tekalifKalanGun > 0) tekalifKalanGun--;
+
         EkraniGuncelle();
-        if (secici != null) secici.TurRaporuGoster(TarihYazisi, rapor);
+        HaritaSecici secici = FindAnyObjectByType<HaritaSecici>();
+        if (secici != null) secici.BilgiyiYenile();
         OyunSonuKontrol();
     }
 
-    // ---------- Ekonomi ----------
+    // ---------- Ekonomi (haftalık; değerler 2 haftalık tanımlı olduğu için yarısı) ----------
 
-    float UretimCarpani { get { return tekalifKalanTur > 0 ? tekalifUretimCarpani : 1f; } }
-
-    void KaynaklariTopla()
-    {
-        HesaplaGelir(out int p, out int e);
-        para += p;
-        erzak += e;
-    }
+    float UretimCarpani { get { return tekalifKalanGun > 0 ? tekalifUretimCarpani : 1f; } }
 
     void HesaplaGelir(out int p, out int e)
     {
@@ -91,8 +204,8 @@ public class TurYoneticisi : MonoBehaviour
             p += s.paraUretimi;
             e += s.erzakUretimi;
         }
-        p = Mathf.RoundToInt(p * UretimCarpani);
-        e = Mathf.RoundToInt(e * UretimCarpani);
+        p = Mathf.RoundToInt(p * UretimCarpani * 0.5f);
+        e = Mathf.RoundToInt(e * UretimCarpani * 0.5f);
     }
 
     void HesaplaGider(out int p, out int e)
@@ -100,26 +213,47 @@ public class TurYoneticisi : MonoBehaviour
         p = 0; e = 0;
         foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None))
             if (o.OyuncununMu && o.Yasiyor) { p += o.MaasGideri; e += o.ErzakTuketimi; }
+        p = Mathf.CeilToInt(p * 0.5f);
+        e = Mathf.CeilToInt(e * 0.5f);
     }
 
-    // Her ordu erzak yer ve maaş alır. Erzak yoksa moral düşer; maaş yoksa moral düşer ve firar olur.
-    void OrdulariBesle(List<string> rapor)
+    void HaftalikEkonomi()
     {
+        HesaplaGelir(out int gp, out int ge);
+        para += gp;
+        erzak += ge;
+
+        // İkmal yıpranması
+        Dictionary<Taraf, int> yipranma = new Dictionary<Taraf, int>();
         foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None))
         {
             if (!o.Yasiyor) continue;
-            if (!o.OyuncununMu) { o.YeniTur(true); continue; }   // düşman ordularını kendi ülkeleri besliyor
+            int kayip = o.IkmalYipranmasi(0.5f);
+            if (kayip > 0) yipranma[o.taraf] = (yipranma.ContainsKey(o.taraf) ? yipranma[o.taraf] : 0) + kayip;
+        }
+        foreach (var y in yipranma)
+            Gunluk.Ekle((y.Key == Taraf.Turk ? "<color=#f99>" : "<color=#9f9>") + TarafBilgi.Ad(y.Key)
+                        + " ordularında ikmal sıkıntısı: " + y.Value + " asker kaybı.</color>");
 
-            bool erzakYetti = erzak >= o.ErzakTuketimi;
-            if (erzakYetti) erzak -= o.ErzakTuketimi;
-            else rapor.Add("<color=#f99>" + o.orduAdi + " aç kaldı, moral düşüyor.</color>");
+        // Erzak ve maaş
+        foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None))
+        {
+            if (!o.Yasiyor) continue;
+            if (!o.OyuncununMu) { o.YeniTur(true); continue; }
 
-            if (para >= o.MaasGideri) para -= o.MaasGideri;
+            int yemek = Mathf.CeilToInt(o.ErzakTuketimi * 0.5f);
+            int maas = Mathf.CeilToInt(o.MaasGideri * 0.5f);
+
+            bool erzakYetti = erzak >= yemek;
+            if (erzakYetti) erzak -= yemek;
+            else Gunluk.Ekle("<color=#f99>" + o.orduAdi + " aç kaldı, moral düşüyor.</color>");
+
+            if (para >= maas) para -= maas;
             else
             {
-                int firar = Mathf.RoundToInt(o.askerSayisi * 0.05f);
-                o.MoralDegistir(-10);
-                rapor.Add("<color=#f99>" + o.orduAdi + " maaş alamadı: " + firar + " asker firar etti.</color>");
+                int firar = Mathf.RoundToInt(o.askerSayisi * 0.03f);
+                o.MoralDegistir(-6);
+                Gunluk.Ekle("<color=#f99>" + o.orduAdi + " maaş alamadı: " + firar + " asker firar etti.</color>");
                 o.KayipVer(firar);
                 if (!o.Yasiyor) continue;
             }
@@ -140,12 +274,13 @@ public class TurYoneticisi : MonoBehaviour
         r.anchorMin = r.anchorMax = new Vector2(1f, 1f);
         r.pivot = new Vector2(1f, 1f);
         r.sizeDelta = new Vector2(340f, 80f);
-        r.anchoredPosition = new Vector2(-30f, -20f);
+        r.anchoredPosition = new Vector2(-30f, -110f);
         TMP_Text t = d.GetComponentInChildren<TMP_Text>();
         t.text = "Tekalif-i Milliye\n<size=65%>acil durum kararı (1 kez)</size>";
         t.fontSize = 26;
         tekalifDugmesi = d.GetComponent<Button>();
         tekalifDugmesi.onClick.AddListener(TekalifIlanEt);
+        ArayuzYardimci.DugmeStili(tekalifDugmesi);
     }
 
     void TekalifIlanEt()
@@ -154,17 +289,12 @@ public class TurYoneticisi : MonoBehaviour
         tekalifKullanildi = true;
         para += tekalifPara;
         erzak += tekalifErzak;
-        tekalifKalanTur = tekalifSuresi;
+        tekalifKalanGun = tekalifSuresiGun;
         tekalifDugmesi.gameObject.SetActive(false);
         EkraniGuncelle();
-
-        HaritaSecici secici = FindAnyObjectByType<HaritaSecici>();
-        if (secici != null)
-            secici.TurRaporuGoster(TarihYazisi, new List<string> {
-                "<b>Tekalif-i Milliye emirleri yayımlandı.</b> Halktan erzak, giyecek ve hayvan toplandı: +"
-                + tekalifPara + " para, +" + tekalifErzak + " erzak.",
-                "<color=#f99>Halk yoruldu: " + tekalifSuresi + " tur boyunca sancak üretimi %"
-                + Mathf.RoundToInt((1f - tekalifUretimCarpani) * 100) + " düşük.</color>" });
+        Gunluk.Ekle("<b>Tekalif-i Milliye emirleri yayımlandı.</b> +" + tekalifPara + " para, +" + tekalifErzak
+                    + " erzak. <color=#f99>Halk yoruldu: " + (tekalifSuresiGun / 7) + " hafta boyunca üretim %"
+                    + Mathf.RoundToInt((1f - tekalifUretimCarpani) * 100) + " düşük.</color>");
     }
 
     // ---------- Oyun sonu ----------
@@ -173,7 +303,6 @@ public class TurYoneticisi : MonoBehaviour
     {
         if (oyunBitti) return;
 
-        // Zafer: İzmir bizde ve haritada Yunan askeri kalmadı
         Sancak izmir = Sancak.Bul("İzmir");
         if (izmir != null && izmir.sahip == Taraf.Turk && TarihselOlaylar.ToplamAsker(Taraf.Yunan) == 0)
         {
@@ -182,19 +311,18 @@ public class TurYoneticisi : MonoBehaviour
             return;
         }
 
-        // Yenilgi 1: Ankara 4 tur boyunca düşman elinde
         Sancak ankara = Sancak.Bul("Ankara");
-        ankarasizTur = (ankara != null && ankara.sahip != Taraf.Turk) ? ankarasizTur + 1 : 0;
-        if (ankarasizTur >= 4)
+        ankarasizGun = (ankara != null && ankara.sahip != Taraf.Turk) ? ankarasizGun + 1 : 0;
+        if (ankarasizGun == 1) Gunluk.Ekle("<color=#f66><b>Ankara düştü!</b> 8 hafta içinde geri alınmazsa Millî Mücadele çöker.</color>", true);
+        if (ankarasizGun >= 56)
         {
             oyunBitti = true;
             OyunSonuPaneli.Goster("YENİLGİ", "Ankara düştü ve geri alınamadı.\nMillî Mücadele'nin merkezi kaybedildi.", false);
             return;
         }
 
-        // Yenilgi 2: ordumuz 3 tur boyunca 2000 askerin altında
-        ordusuzTur = TarihselOlaylar.ToplamAsker(Taraf.Turk) < 2000 ? ordusuzTur + 1 : 0;
-        if (ordusuzTur >= 3)
+        ordusuzGun = TarihselOlaylar.ToplamAsker(Taraf.Turk) < 2000 ? ordusuzGun + 1 : 0;
+        if (ordusuzGun >= 42)
         {
             oyunBitti = true;
             OyunSonuPaneli.Goster("YENİLGİ", "Ordu dağıldı.\nDirenecek kuvvet kalmadı.", false);
@@ -211,7 +339,7 @@ public class TurYoneticisi : MonoBehaviour
         r += Madde(TumuBizde("İstanbul", "Çanakkale", "İzmit"),
                    "Boğazlar ve İstanbul tamamen senin kontrolünde.",
                    "Boğazlar İtilaf kontrolünde; tarihteki gibi müzakere edilecek.");
-        r += Madde(TumuBizde("Adana", "Antep", "Maraş", "Urfa"),
+        r += Madde(TumuBizde("Adana", "Hatay", "Antep", "Maraş", "Urfa"),
                    "Güney sınırı tamam.",
                    "Güneyde işgal altında sancaklar var.");
         r += Madde(TumuBizde("Kars"),
@@ -251,11 +379,13 @@ public class TurYoneticisi : MonoBehaviour
         HesaplaGelir(out int gp, out int ge);
         HesaplaGider(out int cp, out int ce);
         tarihYazisi.text = TarihYazisi
-            + "   |   Tur " + turSayisi
-            + "   |   Para: " + para + " <size=70%>(" + Isaretli(gp - cp) + ")</size>"
-            + "   |   Erzak: " + erzak + " <size=70%>(" + Isaretli(ge - ce) + ")</size>"
+            + "   |   " + (duraklatildi ? "<color=#fc8>DURAKLATILDI</color>" : "Hız " + hiz)
+            + "   |   Para: " + para + " <size=70%>(" + Isaretli(gp - cp) + "/hafta)</size>"
+            + "   |   Erzak: " + erzak + " <size=70%>(" + Isaretli(ge - ce) + "/hafta)</size>"
             + "   |   Sancak: " + TurkSancakSayisi()
-            + (tekalifKalanTur > 0 ? "   <size=70%><color=#fc8>Tekalif: " + tekalifKalanTur + " tur</color></size>" : "");
+            + (tekalifKalanGun > 0 ? "   <size=70%><color=#fc8>Tekalif: " + tekalifKalanGun + " gün</color></size>" : "");
+        if (duraklatYazisi != null)
+            duraklatYazisi.text = duraklatildi ? "Devam Et\n<size=60%>(Boşluk)</size>" : "Duraklat\n<size=60%>(Boşluk)</size>";
     }
 
     static string Isaretli(int n) { return (n >= 0 ? "<color=#9f9>+" : "<color=#f99>") + n + "</color>"; }

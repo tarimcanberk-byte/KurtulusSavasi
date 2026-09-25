@@ -47,6 +47,7 @@ public static class HaritaVerisi
         new SancakTanimi("Kayseri",     38.73f, 35.49f, Taraf.Turk,      15, 15),
         new SancakTanimi("Niğde",       37.97f, 34.68f, Taraf.Turk,       5, 15),
         new SancakTanimi("Adana",       37.00f, 35.32f, Taraf.Fransiz,   25, 25),
+        new SancakTanimi("Hatay",       36.20f, 36.16f, Taraf.Fransiz,   15, 15),   // o dönemde İskenderun Sancağı
         new SancakTanimi("Maraş",       37.58f, 36.94f, Taraf.Ingiliz,   10, 15),
         new SancakTanimi("Antep",       37.07f, 37.38f, Taraf.Ingiliz,   15, 15),
         new SancakTanimi("Urfa",        37.16f, 38.79f, Taraf.Ingiliz,   10, 15),
@@ -76,8 +77,36 @@ public static class HaritaVerisi
         new OrduTanimi("İngiliz Antep Birliği", "Antep",    Taraf.Ingiliz,  3000),
         new OrduTanimi("İtalyan Antalya Birliği", "Antalya", Taraf.Italyan, 4000),
         new OrduTanimi("Fransız Kilikya Birliği", "Adana",  Taraf.Fransiz,  6000),
+        new OrduTanimi("Fransız İskenderun Birliği", "Hatay", Taraf.Fransiz, 2000),
         new OrduTanimi("Ermeni Kars Ordusu",   "Kars",      Taraf.Ermeni,   8000),
     };
+
+    // Kıyısı olan sancaklar: yabancı ordular denizden buralardan beslenir
+    public static readonly string[] KiyiSancaklari =
+    {
+        "İstanbul", "İzmit", "Çanakkale", "Bursa", "Balıkesir", "İzmir", "Aydın", "Menteşe",
+        "Antalya", "Adana", "Hatay", "Bolu", "Kastamonu", "Samsun", "Trabzon",
+    };
+
+    // Arazinin savunmaya kattığı çarpan (dağlık ve nehirli bölgeler savunana avantaj verir)
+    public static float AraziBonusu(string sancak)
+    {
+        switch (sancak)
+        {
+            case "Ankara":    return 1.30f;   // Sakarya nehri ve tepeleri
+            case "Eskişehir": return 1.20f;   // İnönü mevzileri
+            case "Afyon":     return 1.20f;   // Kocatepe, dağlık
+            case "Kütahya":   return 1.15f;
+            case "Bolu":      return 1.20f;   // Köroğlu dağları
+            case "Erzurum":   return 1.25f;   // Palandöken, tabyalar
+            case "Kars":      return 1.15f;
+            case "Maraş":     return 1.15f;   // şehir savunması
+            case "Antep":     return 1.15f;
+            case "Isparta":   return 1.10f;   // Toroslar
+            case "Denizli":   return 1.10f;
+            default:          return 1.00f;
+        }
+    }
 
     // Komşuluk otomatik hesaplanır: merkezleri arası mesafe bu değerin altındaysa komşudur (km)
     public const float KomsulukMesafesiKm = 200f;
