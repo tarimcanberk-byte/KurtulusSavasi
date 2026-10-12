@@ -17,6 +17,13 @@ public class Komutan
     public int yaraliGun;
     public int zafer, yenilgi;
     public Ordu ordu;            // komuta ettiği ordu (yoksa null)
+    public Sancak konum;         // boştayken bulunduğu yer
+    public Ordu yoldaHedef;      // atandığı ve yolda olduğu ordu
+    public int yolGun;           // varışa kalan gün
+    public KomutanIsareti isaret; // haritada yoldaki atlı işareti
+
+    public bool Yolda { get { return yoldaHedef != null; } }
+    public Sancak Bulundugu { get { return ordu != null && ordu.bulunduguSancak != null ? ordu.bulunduguSancak : konum; } }
 
     public bool Musait { get { return canli && katildi && yaraliGun <= 0; } }
     public bool Var(string ozellik) { return ozellikler.Contains(ozellik); }
@@ -74,7 +81,14 @@ public static class Komutanlar
     // Harita kurulduktan sonra: başlangıç orduları tarihteki komutanlarıyla
     public static void Baslat()
     {
-        foreach (Komutan k in Liste) k.katildi = k.katilmaTarihi <= new DateTime(1919, 5, 19);
+        Sancak ankara = Sancak.Bul("Ankara"), samsun = Sancak.Bul("Samsun");
+        foreach (Komutan k in Liste)
+        {
+            k.katildi = k.katilmaTarihi <= new DateTime(1919, 5, 19);
+            k.konum = ankara;                       // sonradan katılanlar Ankara'ya gelir
+        }
+        Komutan mk = Bul("Mustafa Kemal");
+        if (mk != null && samsun != null) mk.konum = samsun;   // 19 Mayıs 1919: Samsun
         Ata(Bul("Ali Fuat"), OrduBul("20. Kolordu"));
         Ata(Bul("Kâzım Karabekir"), OrduBul("15. Kolordu"));
         Ata(Bul("Refet"), OrduBul("3. Kolordu"));
@@ -94,14 +108,16 @@ public static class Komutanlar
     {
         if (k == null || o == null) return;
         if (k.ordu != null) k.ordu.komutan = null;
-        if (o.komutan != null) o.komutan.ordu = null;
+        if (o.komutan != null) { o.komutan.konum = o.bulunduguSancak; o.komutan.ordu = null; }
         k.ordu = o;
+        k.yoldaHedef = null; k.yolGun = 0;
         o.komutan = k;
     }
 
     public static void Birak(Ordu o)
     {
         if (o == null || o.komutan == null) return;
+        o.komutan.konum = o.bulunduguSancak;
         o.komutan.ordu = null;
         o.komutan = null;
     }
@@ -109,8 +125,56 @@ public static class Komutanlar
     public static List<Komutan> Bostakiler()
     {
         List<Komutan> l = new List<Komutan>();
-        foreach (Komutan k in Liste) if (k.Musait && k.ordu == null) l.Add(k);
+        foreach (Komutan k in Liste) if (k.Musait && k.ordu == null && !k.Yolda) l.Add(k);
         return l;
+    }
+
+    // ---------- Atama yolculuğu ----------
+
+    public const float GunlukYolKm = 40f;   // 1919 Anadolu'su: at, araba ve yer yer demiryolu
+
+    // Komutanın bulunduğu yerden orduya kaç günde varacağı
+    public static int YolGunu(Komutan k, Ordu o)
+    {
+        Sancak bas = k.Bulundugu, son = o.bulunduguSancak;
+        if (bas == null || son == null || bas == son) return 1;
+        float km = 0f;
+        List<Sancak> yol = Sancak.YolBul(bas, son);
+        if (yol != null && yol.Count > 0)
+        {
+            Sancak onceki = bas;
+            foreach (Sancak s in yol) { km += Vector3.Distance(onceki.transform.position, s.transform.position) / 4f * 111f; onceki = s; }
+        }
+        else km = Vector3.Distance(bas.transform.position, son.transform.position) / 4f * 111f * 1.3f;
+        return Mathf.Max(1, Mathf.CeilToInt(km / GunlukYolKm * Meclis.YolCarpani));
+    }
+
+    // Oyuncunun ataması: komutan yola çıkar, varınca komutayı devralır (eski komutan o güne kadar görevde)
+    public static int Gonder(Komutan k, Ordu o)
+    {
+        if (k == null || o == null) return 0;
+        // Bu orduya yolda olan başka biri varsa ataması iptal, bulunduğu yerde kalır
+        foreach (Komutan x in Liste) if (x != k && x.yoldaHedef == o) { x.yoldaHedef = null; x.yolGun = 0; IsaretiKaldir(x); }
+        int gun = YolGunu(k, o);
+        Sancak bas = k.Bulundugu;
+        k.yoldaHedef = o;
+        k.yolGun = gun;
+        IsaretiKaldir(k);
+        if (bas != null && o.bulunduguSancak != null)
+            k.isaret = KomutanIsareti.Olustur(k, bas, Sancak.YolBul(bas, o.bulunduguSancak), o, gun);
+        return gun;
+    }
+
+    public static void IsaretiKaldir(Komutan k)
+    {
+        if (k.isaret != null) UnityEngine.Object.Destroy(k.isaret.gameObject);
+        k.isaret = null;
+    }
+
+    public static Komutan Yoldaki(Ordu o)
+    {
+        foreach (Komutan k in Liste) if (k.yoldaHedef == o) return k;
+        return null;
     }
 
     // Her gün: yeni katılanlar, iyileşen yaralılar
@@ -124,6 +188,28 @@ public static class Komutanlar
             {
                 k.katildi = true;
                 if (k.katilmaHaberi != null) haberler.Add(k.katilmaHaberi);
+            }
+            if (k.Yolda)
+            {
+                k.yolGun--;
+                if (k.yolGun > 0 && k.isaret != null) k.isaret.Guncelle();
+                if (k.yolGun <= 0)
+                {
+                    IsaretiKaldir(k);
+                    Ordu o = k.yoldaHedef;
+                    k.yoldaHedef = null;
+                    if (o != null && o.Yasiyor)
+                    {
+                        string eski = o.komutan != null ? " " + o.komutan.ad + " görevi devretti." : "";
+                        Ata(k, o);
+                        Gunluk.Ekle("<color=#9f9>" + k.ad + " " + o.orduAdi + "'na ulaştı ve komutayı devraldı.</color>" + eski);
+                    }
+                    else if (o != null)
+                    {
+                        k.konum = o.bulunduguSancak != null ? o.bulunduguSancak : k.konum;
+                        haberler.Add(k.ad + " yola çıktığı ordu artık yok; " + (k.konum != null ? k.konum.sancakAdi : "yolda") + " civarında bekliyor.");
+                    }
+                }
             }
             if (k.yaraliGun > 0)
             {
@@ -203,7 +289,7 @@ public static class Komutanlar
                 kazanan.ozellikler.Add("Muzaffer");
                 h.Add("<color=#9f9>" + kazanan.ad + " üst üste kazandığı muharebelerle <b>Muzaffer</b> unvanını aldı (+%5 güç).</color>");
             }
-            KaderZarı(kazanan, kazananKarargahDustu ? 0.10f : 0.005f, kazananKarargahDustu ? 0.30f : 0.02f, h);
+            KaderZari(kazanan, kazananKarargahDustu ? 0.10f : 0.005f, kazananKarargahDustu ? 0.30f : 0.02f, h);
         }
         if (kaybeden != null)
         {
@@ -215,12 +301,12 @@ public static class Komutanlar
             }
             float olum = kaybedenKarargahDustu ? 0.20f : kaybedenDagildi ? 0.15f : 0.03f;
             float yara = kaybedenKarargahDustu ? 0.40f : kaybedenDagildi ? 0.35f : 0.10f;
-            KaderZarı(kaybeden, olum, yara, h);
+            KaderZari(kaybeden, olum, yara, h);
         }
         return h;
     }
 
-    static void KaderZarı(Komutan k, float olum, float yara, List<string> h)
+    static void KaderZari(Komutan k, float olum, float yara, List<string> h)
     {
         float z = UnityEngine.Random.value;
         if (z < olum)
@@ -232,6 +318,8 @@ public static class Komutanlar
                 return;
             }
             k.canli = false;
+            k.yoldaHedef = null;
+            IsaretiKaldir(k);
             Ordu o = k.ordu;
             if (o != null) Birak(o);
             h.Add("<color=#f66><b>" + k.ad + " şehit düştü!</b>" + (o != null ? " " + o.orduAdi + " komutansız kaldı." : "") + "</color>");

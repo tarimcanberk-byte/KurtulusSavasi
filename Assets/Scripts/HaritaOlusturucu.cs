@@ -27,6 +27,7 @@ public class HaritaOlusturucu : MonoBehaviour
         Diplomasi.Sifirla();
         TarihselOlaylar.Sifirla();
         Komutanlar.Sifirla();
+        Meclis.Sifirla();
 
         Shader duz = Shader.Find("Universal Render Pipeline/Unlit");
         if (duz == null) duz = Shader.Find("Universal Render Pipeline/Lit");

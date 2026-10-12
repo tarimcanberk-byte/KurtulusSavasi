@@ -48,7 +48,7 @@ public class HaritaSecici : MonoBehaviour
 
     void Update()
     {
-        if (MuharebeYoneticisi.Mesgul) return;   // savaş ekranı açıkken harita tıklanmaz
+        if (MuharebeYoneticisi.Mesgul || MeclisPaneli.Acik) return;   // savaş ekranı ya da Meclis açıkken harita tıklanmaz
         Mouse fare = Mouse.current;
         if (fare == null) return;
         bool solTik = fare.leftButton.wasPressedThisFrame;
@@ -322,12 +322,13 @@ public class HaritaSecici : MonoBehaviour
         TurYoneticisi tur = FindAnyObjectByType<TurYoneticisi>();
         if (seciliSancak == null || tur == null) return;
 
-        if (tur.para < birlikMaliyeti)
+        int maliyet = Mathf.RoundToInt(birlikMaliyeti * Meclis.BirlikMaliyetCarpani);
+        if (tur.para < maliyet)
         {
-            BilgiGoster("<color=#ff8080>Yeterli para yok (" + birlikMaliyeti + " gerekli).</color>\n" + seciliSancak.BilgiMetni());
+            BilgiGoster("<color=#ff8080>Yeterli para yok (" + maliyet + " gerekli).</color>\n" + seciliSancak.BilgiMetni());
             return;
         }
-        tur.para -= birlikMaliyeti;
+        tur.para -= maliyet;
 
         List<Ordu> bizimkiler = BizimOrdular(seciliSancak);
         string mesaj;
@@ -378,7 +379,8 @@ public class HaritaSecici : MonoBehaviour
         baslik.fontSize = 24; baslik.alignment = TextAlignmentOptions.Top;
         baslik.color = ArayuzYardimci.DugmeYazisi; baslik.raycastTarget = false;
         baslik.text = "<b>" + ordu.orduAdi + " için komutan</b>\n<size=80%>Şu an: "
-                    + (ordu.komutan != null ? ordu.komutan.ad : "<color=#f99>komutan yok</color>") + "</size>";
+                    + (ordu.komutan != null ? ordu.komutan.ad : "<color=#f99>komutan yok</color>")
+                    + (Komutanlar.Yoldaki(ordu) != null ? "   <color=#fc8>Yolda: " + Komutanlar.Yoldaki(ordu).ad + "</color>" : "") + "</size>";
 
         float y = -100f;
         if (bostakiler.Count == 0)
@@ -396,13 +398,21 @@ public class HaritaSecici : MonoBehaviour
             y -= 82f;
             TMP_Text t = d.GetComponentInChildren<TMP_Text>();
             t.fontSize = 20;
-            t.text = "<b>" + k.ad + "</b>   <size=85%>" + k.Degerler + "</size>\n<size=75%>" + k.OzellikMetni + "</size>";
+            t.text = "<b>" + k.ad + "</b>   <size=85%>" + k.Degerler + "</size>\n<size=75%>" + k.OzellikMetni
+                   + "   <color=#fc8>~" + Komutanlar.YolGunu(k, ordu) + " gün yol (" + (k.Bulundugu != null ? k.Bulundugu.sancakAdi : "?") + ")</color></size>";
             Button b = d.GetComponent<Button>();
             b.onClick.AddListener(() =>
             {
-                Komutanlar.Ata(secilen, ordu);
+                if (!Meclis.AtamaKabul(secilen, out string red))
+                {
+                    KomutanPaneliKapat();
+                    BilgiGoster("<color=#f99>" + red + "</color>\n" + ordu.BilgiMetni());
+                    return;
+                }
+                int gun = Komutanlar.Gonder(secilen, ordu);
                 KomutanPaneliKapat();
-                BilgiGoster("<color=#9f9>" + secilen.ad + ", " + ordu.orduAdi + " komutanlığına atandı.</color>\n" + ordu.BilgiMetni());
+                BilgiGoster("<color=#9f9>" + secilen.ad + ", " + ordu.orduAdi + " komutanlığına atandı; " + gun
+                            + " günde varıp komutayı devralacak.</color>\n" + ordu.BilgiMetni());
             });
             ArayuzYardimci.DugmeStili(b);
         }

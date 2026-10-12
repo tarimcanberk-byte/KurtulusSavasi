@@ -94,6 +94,7 @@ public static class Savas
 
         // Bizim için iyi sonuç yeşil, kötü sonuç kırmızı
         bool bizimIcinIyi = (kazandi == oyuncuSaldiriyor);
+        if (saldiran.OyuncununMu || savunan.OyuncununMu) Meclis.MuharebeSonucu(bizimIcinIyi);
         return Renkli(rapor, bizimIcinIyi);
     }
 

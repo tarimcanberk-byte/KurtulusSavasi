@@ -68,11 +68,17 @@ public class TurYoneticisi : MonoBehaviour
         turuBitirDugmesi.onClick.AddListener(DuraklatDevam);
         ArayuzYardimci.DugmeStili(turuBitirDugmesi);
         duraklatYazisi = turuBitirDugmesi.GetComponentInChildren<TMP_Text>();
+        // Üst şerit yazısı sığmazsa küçülsün
+        tarihYazisi.enableAutoSizing = true;
+        tarihYazisi.fontSizeMax = tarihYazisi.fontSize;
+        tarihYazisi.fontSizeMin = 18f;
+        tarihYazisi.textWrappingMode = TextWrappingModes.NoWrap;
         Canvas canvas = FindAnyObjectByType<Canvas>();
         if (canvas != null) ArayuzYardimci.UstSeritOlustur(canvas, 100f);
         HizDugmesi(">>", new Vector2(-320f, 30f), () => HizDegistir(+1));
         HizDugmesi("<<", new Vector2(-410f, 30f), () => HizDegistir(-1));
         TekalifDugmesiOlustur();
+        if (canvas != null) MeclisPaneli.DugmeKur(canvas, this);
         EkraniGuncelle();
         Gunluk.Ekle("<b>19 Mayıs 1919.</b> Mustafa Kemal Samsun'a çıktı. Oyun duraklatıldı: başlatmak için <b>Boşluk</b> tuşuna ya da <b>Devam Et</b>'e bas.");
     }
@@ -163,6 +169,8 @@ public class TurYoneticisi : MonoBehaviour
             Gunluk.Ekle(olay, true);
         foreach (string haber in Komutanlar.GunIlerle(tarih))
             Gunluk.Ekle(haber, true);
+        foreach (string haber in Meclis.GunIlerle(tarih))
+            Gunluk.Ekle(haber, true);
 
         // 2) Ordular yürür ve çarpışır
         foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None))
@@ -176,6 +184,7 @@ public class TurYoneticisi : MonoBehaviour
             if (sonuc == null) continue;
             // Bir Türk sancağı düştüyse ya da Türk ordusu dağıldıysa duraklat
             bool kotu = hedefBizimdi && hedef.sahip != Taraf.Turk;
+            if (kotu) Meclis.SancakKaybi();
             Gunluk.Ekle(sonuc.Replace("\n", " "), kotu);
         }
 
@@ -206,7 +215,7 @@ public class TurYoneticisi : MonoBehaviour
             p += s.paraUretimi;
             e += s.erzakUretimi;
         }
-        p = Mathf.RoundToInt(p * UretimCarpani * 0.5f);
+        p = Mathf.RoundToInt(p * UretimCarpani * Meclis.GelirCarpani * 0.5f);
         e = Mathf.RoundToInt(e * UretimCarpani * 0.5f);
     }
 
@@ -253,7 +262,7 @@ public class TurYoneticisi : MonoBehaviour
             if (para >= maas) para -= maas;
             else
             {
-                int firar = Mathf.RoundToInt(o.askerSayisi * 0.03f);
+                int firar = Mathf.RoundToInt(o.askerSayisi * 0.03f * Meclis.FirarCarpani);
                 o.MoralDegistir(-6);
                 Gunluk.Ekle("<color=#f99>" + o.orduAdi + " maaş alamadı: " + firar + " asker firar etti.</color>");
                 o.KayipVer(firar);
@@ -381,10 +390,11 @@ public class TurYoneticisi : MonoBehaviour
         HesaplaGelir(out int gp, out int ge);
         HesaplaGider(out int cp, out int ce);
         tarihYazisi.text = TarihYazisi
-            + "   |   " + (duraklatildi ? "<color=#fc8>DURAKLATILDI</color>" : "Hız " + hiz)
-            + "   |   Para: " + para + " <size=70%>(" + Isaretli(gp - cp) + "/hafta)</size>"
-            + "   |   Erzak: " + erzak + " <size=70%>(" + Isaretli(ge - ce) + "/hafta)</size>"
-            + "   |   Sancak: " + TurkSancakSayisi()
+            + "  |  " + (duraklatildi ? "<color=#fc8>DURAKLATILDI</color>" : "Hız " + hiz)
+            + "  |  Para: " + para + " <size=70%>(" + Isaretli(gp - cp) + "/hafta)</size>"
+            + "  |  Erzak: " + erzak + " <size=70%>(" + Isaretli(ge - ce) + "/hafta)</size>"
+            + "  |  Sancak: " + TurkSancakSayisi()
+            + "  |  Yetki: " + Mathf.RoundToInt(Meclis.Yetki)
             + (tekalifKalanGun > 0 ? "   <size=70%><color=#fc8>Tekalif: " + tekalifKalanGun + " gün</color></size>" : "");
         if (duraklatYazisi != null)
             duraklatYazisi.text = duraklatildi ? "Devam Et\n<size=60%>(Boşluk)</size>" : "Duraklat\n<size=60%>(Boşluk)</size>";

@@ -63,7 +63,7 @@ public class Ordu : MonoBehaviour
 
     // Savaş gücü: asker sayısı ve moralin birleşimi
     // İkmalden uzak ordu zayıflar
-    public float Guc           { get { return askerSayisi * (0.5f + moral / 200f) * Ikmal.Carpan(IkmalMesafesi) * Komutanlar.GucCarpani(this); } }
+    public float Guc           { get { return askerSayisi * (0.5f + moral / 200f) * Ikmal.Carpan(IkmalMesafesi) * Komutanlar.GucCarpani(this) * (OyuncununMu ? Meclis.OrduCarpani : 1f); } }
 
     // Bulunduğu sancağı savunurken gücü: arazi ve siper avantajıyla
     public float SavunmaGucu   { get { return Guc * 1.2f * TahkimatCarpani * (bulunduguSancak != null ? bulunduguSancak.araziBonusu : 1f); } }
@@ -481,6 +481,9 @@ public class Ordu : MonoBehaviour
         string komutanSatiri = !OyuncununMu ? ""
             : komutan == null ? "<color=#f99>Komutan yok</color>  <size=80%>(Komutan Ata düğmesiyle seç)</size>\n"
             : "Komutan: <b>" + komutan.ad + "</b>  <size=80%>" + komutan.Degerler + "  —  " + komutan.OzellikMetni + "</size>\n";
+        Komutan yoldaki = OyuncununMu ? Komutanlar.Yoldaki(this) : null;
+        if (yoldaki != null)
+            komutanSatiri += "<color=#fc8>Yolda: " + yoldaki.ad + " (" + yoldaki.yolGun + " gün sonra komutayı devralacak)</color>\n";
         return "<b>" + orduAdi + "</b>  (" + bulunduguSancak.sancakAdi + ")  —  " + TarafBilgi.Ad(taraf) + "\n"
              + komutanSatiri
              + "Asker: " + askerSayisi + "   Moral: " + moral + "   <b>Güç: " + Mathf.RoundToInt(Guc) + "</b>"
