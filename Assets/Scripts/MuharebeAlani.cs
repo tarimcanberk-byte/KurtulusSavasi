@@ -6,12 +6,14 @@ using UnityEngine;
 public static class MuharebeAlani
 {
     public static readonly Vector3 Merkez = new Vector3(3000f, 0f, 3000f);
-    public const float Yari = 42f;            // meydanın yarı genişliği
-    const int N = 97;                         // ızgara nokta sayısı (her kenarda)
-    const float HaritaYaricapi = 0.40f;       // haritada kaç birimlik alan örneklenir (~22 km)
+    public const float Yari = 42f;            // oynanabilir meydanın yarı genişliği
+    public const float Dis = 90f;             // görünen arazinin yarı genişliği (meydanın ötesi de arazi)
+    const int N = 181;                        // ızgara nokta sayısı (her kenarda)
+    const float HaritaYaricapi = 0.40f;       // oynanabilir meydan haritada kaç birime denk (~22 km)
+    const float DisYaricap = HaritaYaricapi * Dis / Yari;
 
     static float[] yukseklik;                 // N x N (yerel)
-    static float Adim { get { return 2f * Yari / (N - 1); } }
+    static float Adim { get { return 2f * Dis / (N - 1); } }
 
     // Meydanı kurar ve kök nesnesini döndürür
     public static GameObject Kur(Sancak sancak, Transform ebeveyn)
@@ -29,7 +31,7 @@ public static class MuharebeAlani
         for (int j = 0; j < N; j++)
             for (int i = 0; i < N; i++)
             {
-                v[j * N + i] = new Vector3(-Yari + i * Adim, yukseklik[j * N + i], -Yari + j * Adim);
+                v[j * N + i] = new Vector3(-Dis + i * Adim, yukseklik[j * N + i], -Dis + j * Adim);
                 uv[j * N + i] = new Vector2(i / (float)(N - 1), j / (float)(N - 1));
             }
         int[] t = new int[(N - 1) * (N - 1) * 6];
@@ -72,6 +74,7 @@ public static class MuharebeAlani
         etek.GetComponent<Renderer>().material = em;
 
         AgaclariDik(kok.transform);
+        SinirCiz(kok.transform);
         return kok;
     }
 
@@ -79,7 +82,7 @@ public static class MuharebeAlani
     public static float Yukseklik(float x, float z)
     {
         if (yukseklik == null) return Merkez.y;
-        float fi = (x - Merkez.x + Yari) / Adim, fj = (z - Merkez.z + Yari) / Adim;
+        float fi = (x - Merkez.x + Dis) / Adim, fj = (z - Merkez.z + Dis) / Adim;
         fi = Mathf.Clamp(fi, 0f, N - 1.001f); fj = Mathf.Clamp(fj, 0f, N - 1.001f);
         int i = (int)fi, j = (int)fj;
         float tx = fi - i, tz = fj - j;
@@ -134,11 +137,12 @@ public static class MuharebeAlani
         for (int j = 0; j < N; j++)
             for (int i = 0; i < N; i++)
             {
-                float hx = c.x + (i / (float)(N - 1) * 2f - 1f) * HaritaYaricapi;
-                float hz = c.z + (j / (float)(N - 1) * 2f - 1f) * HaritaYaricapi;
+                float hx = c.x + (i / (float)(N - 1) * 2f - 1f) * DisYaricap;
+                float hz = c.z + (j / (float)(N - 1) * 2f - 1f) * DisYaricap;
                 float m = Arazi.Yuklu ? Mathf.Max(0f, Arazi.Yukseklik(hx, hz)) / Arazi.MetreBasinaBirim : 0f;
                 metre[j * N + i] = m;
-                mMin = Mathf.Min(mMin, m); mMax = Mathf.Max(mMax, m);
+                if (Mathf.Abs(hx - c.x) <= HaritaYaricapi && Mathf.Abs(hz - c.z) <= HaritaYaricapi)
+                { mMin = Mathf.Min(mMin, m); mMax = Mathf.Max(mMax, m); }
             }
         // Gerçek yükseklik farkı + küçük tepecikler; çok dağlıksa sıkıştır
         float olcek = (mMax - mMin) > 900f ? 13.5f / (mMax - mMin) : 0.015f;
@@ -146,17 +150,17 @@ public static class MuharebeAlani
         for (int j = 0; j < N; j++)
             for (int i = 0; i < N; i++)
             {
-                float px = i * 0.06f + ox, pz = j * 0.06f + oz;
+                float px = i * 0.06f * Adim / 0.875f + ox, pz = j * 0.06f * Adim / 0.875f + oz;
                 float tepe = (Mathf.PerlinNoise(px, pz) - 0.5f) * 2.5f
                            + (Mathf.PerlinNoise(px * 3f, pz * 3f) - 0.5f) * 0.5f;
-                yukseklik[j * N + i] = (metre[j * N + i] - mMin) * olcek + tepe;
+                yukseklik[j * N + i] = Mathf.Clamp((metre[j * N + i] - mMin) * olcek, -3f, 22f) + tepe;
             }
     }
 
     // Haritadaki renkleri (bulanık) temel alıp üzerine çimen, toprak ve tarla lekeleri işler
     static Texture2D DokuUret(Vector3 c)
     {
-        const int B = 512;
+        const int B = 1024;
         Texture2D harita = Arazi.RenkDokusu();
         Texture2D d = new Texture2D(B, B, TextureFormat.RGBA32, true);
         Color[] p = new Color[B * B];
@@ -167,18 +171,18 @@ public static class MuharebeAlani
             for (int x = 0; x < B; x++)
             {
                 float u = x / (float)(B - 1), v = y / (float)(B - 1);
-                Color taban = HaritaRengi(harita, c.x + (u * 2f - 1f) * HaritaYaricapi, c.z + (v * 2f - 1f) * HaritaYaricapi);
-                float n1 = Mathf.PerlinNoise(u * 6f + ox, v * 6f);
-                float n2 = Mathf.PerlinNoise(u * 25f + ox, v * 25f);
-                float n3 = Mathf.PerlinNoise(u * 90f, v * 90f + ox);
+                Color taban = HaritaRengi(harita, c.x + (u * 2f - 1f) * DisYaricap, c.z + (v * 2f - 1f) * DisYaricap);
+                float n1 = Mathf.PerlinNoise(u * 13f + ox, v * 13f);
+                float n2 = Mathf.PerlinNoise(u * 54f + ox, v * 54f);
+                float n3 = Mathf.PerlinNoise(u * 190f, v * 190f + ox);
                 Color yerel = Color.Lerp(cimen, kuru, n1);
                 yerel = Color.Lerp(yerel, toprak, Mathf.Clamp01((n2 - 0.62f) * 4f));
                 // Tarlalar: dikdörtgen parçalar
-                float tx = Mathf.Floor(u * 9f + ox), tz = Mathf.Floor(v * 7f);
+                float tx = Mathf.Floor(u * 19f + ox), tz = Mathf.Floor(v * 15f);
                 if (Mathf.PerlinNoise(tx * 0.71f, tz * 0.53f) > 0.66f) yerel = Color.Lerp(yerel, tarla, 0.55f);
                 Color son = Color.Lerp(taban, yerel, 0.55f) * (0.9f + n3 * 0.2f);
                 // Kıyıda su: haritadaki su rengi korunur
-                if (!Kara(c.x + (u * 2f - 1f) * HaritaYaricapi, c.z + (v * 2f - 1f) * HaritaYaricapi))
+                if (!Kara(c.x + (u * 2f - 1f) * DisYaricap, c.z + (v * 2f - 1f) * DisYaricap))
                     son = new Color(0.13f, 0.25f, 0.33f);
                 son.a = 1f;
                 p[y * B + x] = son;
@@ -208,6 +212,34 @@ public static class MuharebeAlani
         return Color.Lerp(t, new Color(0.45f, 0.44f, 0.27f), 0.4f);
     }
 
+    // Oynanabilir meydanın sınırı: araziyi izleyen soluk bir çizgi
+    static void SinirCiz(Transform kok)
+    {
+        GameObject g = new GameObject("MeydanSiniri");
+        g.transform.SetParent(kok, false);
+        LineRenderer lr = g.AddComponent<LineRenderer>();
+        lr.material = new Material(Shader.Find("Sprites/Default"));
+        lr.useWorldSpace = true;
+        lr.loop = true;
+        lr.widthMultiplier = 0.2f;
+        lr.startColor = lr.endColor = new Color(1f, 0.95f, 0.8f, 0.35f);
+        lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        List<Vector3> n = new List<Vector3>();
+        int adim = 42;
+        Vector2[] koseler = { new Vector2(-1, -1), new Vector2(1, -1), new Vector2(1, 1), new Vector2(-1, 1) };
+        for (int k = 0; k < 4; k++)
+        {
+            Vector2 a = koseler[k] * Yari, b = koseler[(k + 1) % 4] * Yari;
+            for (int i = 0; i < adim; i++)
+            {
+                Vector2 q = Vector2.Lerp(a, b, i / (float)adim);
+                n.Add(Uzerinde(Merkez + new Vector3(q.x, 0f, q.y), 0.15f));
+            }
+        }
+        lr.positionCount = n.Count;
+        lr.SetPositions(n.ToArray());
+    }
+
     static void AgaclariDik(Transform kok)
     {
         Material govde = new Material(LitShader()); govde.SetColor("_BaseColor", new Color(0.28f, 0.20f, 0.13f));
@@ -216,17 +248,18 @@ public static class MuharebeAlani
         foreach (Material mm in new[] { govde, yaprak1, yaprak2 }) { mm.SetFloat("_Smoothness", 0f); mm.enableInstancing = true; }
 
         // Ağaçlar kümeler halinde (koruluklar), ordu hatlarının ortasına daha az
-        int kume = Random.Range(7, 12);
+        int kume = Random.Range(22, 30);
         for (int k = 0; k < kume; k++)
         {
-            Vector2 merkez = new Vector2(Random.Range(-Yari + 4f, Yari - 4f), Random.Range(-Yari + 4f, Yari - 4f));
+            float alan = k < 9 ? Yari - 4f : Dis - 6f;     // ilk kümeler meydanda, gerisi çevrede
+            Vector2 merkez = new Vector2(Random.Range(-alan, alan), Random.Range(-alan, alan));
             if (Mathf.Abs(merkez.y) < 8f) merkez.y += Mathf.Sign(merkez.y + 0.01f) * 10f;
             int adet = Random.Range(8, 20);
             for (int a = 0; a < adet; a++)
             {
                 Vector2 o = merkez + Random.insideUnitCircle * Random.Range(2f, 6f);
                 Vector3 yer = Merkez + new Vector3(o.x, 0f, o.y);
-                if (!Icinde(yer, 1f)) continue;
+                if (Mathf.Abs(yer.x - Merkez.x) > Dis - 2f || Mathf.Abs(yer.z - Merkez.z) > Dis - 2f) continue;
                 yer = Uzerinde(yer);
                 float boy = Random.Range(0.8f, 1.4f);
                 GameObject agac = new GameObject("Agac");

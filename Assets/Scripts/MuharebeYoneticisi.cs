@@ -38,16 +38,25 @@ public class MuharebeYoneticisi : MonoBehaviour
     Vector3 kamYer; Quaternion kamDonus; float kamUzak, sisYogunluk;
     KameraKontrol haritaKamerasi;
     MuharebeKamera savasKamerasi;
-    TMP_Text ustYazi, seciliYazi, hizYazisi;
+    TMP_Text ustYazi, seciliYazi, hizYazisi, mesajYazisi;
+    float mesajSure;
     RectTransform secimKutusu;
     ParticleSystem duman;
     bool bitti, savasDuraklatildi;
+    bool dizilis;                       // savaş öncesi: oyuncu birliklerini yerleştirir
+    GameObject baslatDugmesi;
+    LineRenderer dizilisCizgisi;
     int savasHizi = 1;
     float sure, carpismaSayaci, zekaSayaci;
     const float SureSiniri = 600f;      // 10 dakika: saldıran sonuç alamazsa savunan kazanır
 
     // Fare
     Vector2 surukleBaslangic;
+    bool sagSurukle;                    // sağ tık basılı: bırakınca yürüyüş, sürüklenirse yön de verilir
+    Vector3 sagBaslangic;
+    bool sagCift;
+    readonly List<LineRenderer> hayaletler = new List<LineRenderer>();   // yerleşme önizlemesi
+    LineRenderer yonOku;
     bool surukleniyor;
     float sonSagTik;
     Alay sonSagHedef;
@@ -190,6 +199,7 @@ public class MuharebeYoneticisi : MonoBehaviour
         oyuncuSaldiriyor = s.OyuncununMu;
         sure = 0f; carpismaSayaci = 0f; zekaSayaci = 0f;
         alaylar.Clear(); secili.Clear();
+        hayaletler.Clear(); yonOku = null; sagSurukle = false;
         Alay.Sifirla();
         Time.timeScale = 1f;
 
@@ -198,7 +208,7 @@ public class MuharebeYoneticisi : MonoBehaviour
         kam = Camera.main;
         kamYer = kam.transform.position; kamDonus = kam.transform.rotation; kamUzak = kam.farClipPlane;
         sisYogunluk = RenderSettings.fogDensity;
-        RenderSettings.fogDensity = 0.0045f;
+        RenderSettings.fogDensity = 0.006f;
         kam.farClipPlane = 600f;
         haritaKamerasi = kam.GetComponent<KameraKontrol>();
         if (haritaKamerasi != null) haritaKamerasi.enabled = false;
@@ -217,26 +227,135 @@ public class MuharebeYoneticisi : MonoBehaviour
         else savasKamerasi.Ayarla(m + new Vector3(0f, 0f, 6f), 180f, 30f);
 
         SavasArayuzunuKur();
+        DizilisBaslat();
         Gunluk.Ekle("<b>" + h.sancakAdi + " meydan muharebesi başladı.</b> Komuta sende.");
     }
 
-    void AlaylariKur(Ordu o, bool saldiranMi, float z)
+    // Haritadaki ordunun savaş düzeni: karargâh, topçu, makineli tüfek, süvari ve kalanı piyade
+    static List<KeyValuePair<Alay.Tur, int>> Kompozisyon(Ordu o)
     {
-        int n = Mathf.Clamp(Mathf.RoundToInt(o.askerSayisi / 1500f), 1, 8);
-        int her = Mathf.Max(1, o.askerSayisi / n);
-        float verim = Mathf.Clamp(o.Guc / Mathf.Max(1f, o.askerSayisi), 0.3f, 1.5f);
-        float siper = saldiranMi ? 1f : Mathf.Clamp(o.SavunmaGucu / Mathf.Max(1f, o.Guc), 1f, 2.2f);
-        Vector3 bakis = saldiranMi ? Vector3.forward : Vector3.back;
-        string onEk = o.OyuncununMu ? "" : TarafBilgi.Ad(o.taraf) + " ";
+        List<KeyValuePair<Alay.Tur, int>> liste = new List<KeyValuePair<Alay.Tur, int>>();
+        int a = o.askerSayisi, kalan = a;
+        bool turk = o.taraf == Taraf.Turk, ermeni = o.taraf == Taraf.Ermeni;
+        bool donanimli = !turk && !ermeni;     // İtilaf orduları daha çok top ve makineliye sahip
+        bool kuvayi = o.orduAdi.Contains("Kuva");
+
+        int karargah = a >= 2000 ? 1 : 0;
+        int topcu = turk ? (a >= 16000 ? 2 : a >= 5000 ? 1 : 0)
+                  : donanimli ? (a >= 25000 ? 3 : a >= 12000 ? 2 : a >= 4000 ? 1 : 0)
+                  : (a >= 6000 ? 1 : 0);
+        int makineli = donanimli ? (a >= 20000 ? 3 : a >= 8000 ? 2 : a >= 3000 ? 1 : 0)
+                     : (a >= 10000 ? 2 : a >= 3000 ? 1 : 0);
+        int suvari = turk ? (a >= 15000 ? 2 : a >= 5000 ? 1 : 0) + (kuvayi && a >= 2000 ? 1 : 0)
+                   : ermeni ? (a >= 6000 ? 1 : 0)
+                   : (a >= 15000 ? 1 : 0);
+
+        void Koy(Alay.Tur t, int sayi, int asker)
+        {
+            for (int i = 0; i < sayi; i++)
+            {
+                if (kalan - asker < 1000) return;   // piyadeye yer kalsın
+                liste.Add(new KeyValuePair<Alay.Tur, int>(t, asker));
+                kalan -= asker;
+            }
+        }
+        Koy(Alay.Tur.Karargah, karargah, 150);
+        Koy(Alay.Tur.Topcu, topcu, 500);
+        Koy(Alay.Tur.Makineli, makineli, 400);
+        Koy(Alay.Tur.Suvari, suvari, 900);
+
+        int n = Mathf.Clamp(Mathf.RoundToInt(kalan / 1500f), 1, 8);
         for (int i = 0; i < n; i++)
         {
-            float x = (i - (n - 1) / 2f) * 7.5f;
-            Vector3 yer = MuharebeAlani.Merkez + new Vector3(saldiranMi ? x : -x, 0f, z);
-            Alay a = Alay.Olustur(kok.transform, onEk + (i + 1) + ". Alay", o.taraf, o.OyuncununMu, her, yer, bakis, o.moral, verim);
-            a.savunan = !saldiranMi;
-            a.siper = siper;
-            alaylar.Add(a);
+            int pay = i < n - 1 ? kalan / n : kalan - (kalan / n) * (n - 1);
+            liste.Add(new KeyValuePair<Alay.Tur, int>(Alay.Tur.Piyade, pay));
         }
+        return liste;
+    }
+
+    // Ön hatta makineli + piyade, arkasında topçu, en geride karargâh, kanatlarda süvari
+    void AlaylariKur(Ordu o, bool saldiranMi, float z)
+    {
+        List<KeyValuePair<Alay.Tur, int>> komp = Kompozisyon(o);
+        float verim = Mathf.Clamp(o.Guc / Mathf.Max(1f, o.askerSayisi), 0.3f, 1.5f);
+        float siper = saldiranMi ? 1f : Mathf.Clamp(o.SavunmaGucu / Mathf.Max(1f, o.Guc), 1f, 2.2f);
+        Vector3 ileri = saldiranMi ? Vector3.forward : Vector3.back;
+        Vector3 sag = Vector3.Cross(Vector3.up, ileri);
+        Vector3 merkez = MuharebeAlani.Merkez + new Vector3(0f, 0f, z);
+        string onEk = o.OyuncununMu ? "" : TarafBilgi.Ad(o.taraf) + " ";
+
+        List<KeyValuePair<Alay.Tur, int>> onHat = new List<KeyValuePair<Alay.Tur, int>>();
+        List<KeyValuePair<Alay.Tur, int>> topcular = new List<KeyValuePair<Alay.Tur, int>>();
+        List<KeyValuePair<Alay.Tur, int>> suvariler = new List<KeyValuePair<Alay.Tur, int>>();
+        List<KeyValuePair<Alay.Tur, int>> makineliler = new List<KeyValuePair<Alay.Tur, int>>();
+        KeyValuePair<Alay.Tur, int>? karargah = null;
+        foreach (var k in komp)
+        {
+            switch (k.Key)
+            {
+                case Alay.Tur.Piyade: onHat.Add(k); break;
+                case Alay.Tur.Topcu: topcular.Add(k); break;
+                case Alay.Tur.Suvari: suvariler.Add(k); break;
+                case Alay.Tur.Makineli: makineliler.Add(k); break;
+                default: karargah = k; break;
+            }
+        }
+        // Makineliler piyade hattının iki ucuna ve ortasına
+        for (int i = 0; i < makineliler.Count; i++)
+        {
+            if (i == 0) onHat.Insert(0, makineliler[i]);
+            else if (i == 1) onHat.Add(makineliler[i]);
+            else onHat.Insert(onHat.Count / 2, makineliler[i]);
+        }
+
+        Dictionary<Alay.Tur, int> sayac = new Dictionary<Alay.Tur, int>();
+        float hatYarisi = SiraDiz(onHat, merkez, sag, ileri, 1.2f, o, onEk, verim, siper, !saldiranMi, sayac);
+        SiraDiz(topcular, merkez - ileri * 9f, sag, ileri, 3f, o, onEk, verim, siper, !saldiranMi, sayac);
+        if (karargah.HasValue)
+            SiraDiz(new List<KeyValuePair<Alay.Tur, int>> { karargah.Value }, merkez - ileri * 15f, sag, ileri, 0f, o, onEk, verim, siper, !saldiranMi, sayac);
+        for (int i = 0; i < suvariler.Count; i++)
+        {
+            float yan = (hatYarisi + 6f + (i / 2) * 8f) * (i % 2 == 0 ? 1f : -1f);
+            Vector3 yer = merkez + sag * yan - ileri * 3f;
+            BirlikOlustur(suvariler[i], yer, ileri, o, onEk, verim, siper, !saldiranMi, sayac);
+        }
+    }
+
+    // Birlikleri yan yana bir hat halinde dizer; hattın yarı genişliğini döndürür
+    float SiraDiz(List<KeyValuePair<Alay.Tur, int>> birlikler, Vector3 merkez, Vector3 sag, Vector3 ileri, float ara,
+                  Ordu o, string onEk, float verim, float siper, bool savunanMi, Dictionary<Alay.Tur, int> sayac)
+    {
+        if (birlikler.Count == 0) return 0f;
+        float toplam = -ara;
+        foreach (var b in birlikler) { Alay.Ozellik oz = Alay.Ozellikleri(b.Key); toplam += oz.sutun * oz.araX + ara; }
+        float x = -toplam / 2f;
+        foreach (var b in birlikler)
+        {
+            Alay.Ozellik oz = Alay.Ozellikleri(b.Key);
+            float g = oz.sutun * oz.araX;
+            BirlikOlustur(b, merkez + sag * (x + g / 2f), ileri, o, onEk, verim, siper, savunanMi, sayac);
+            x += g + ara;
+        }
+        return toplam / 2f;
+    }
+
+    void BirlikOlustur(KeyValuePair<Alay.Tur, int> b, Vector3 yer, Vector3 ileri, Ordu o, string onEk, float verim, float siper,
+                       bool savunanMi, Dictionary<Alay.Tur, int> sayac)
+    {
+        int no = (sayac.ContainsKey(b.Key) ? sayac[b.Key] : 0) + 1;
+        sayac[b.Key] = no;
+        string ad = b.Key == Alay.Tur.Piyade ? no + ". Alay"
+                  : b.Key == Alay.Tur.Suvari ? no + ". Süvari"
+                  : b.Key == Alay.Tur.Topcu ? no + ". Topçu"
+                  : b.Key == Alay.Tur.Makineli ? no + ". Makineli"
+                  : "Karargâh";
+        Vector3 yerel = yer - MuharebeAlani.Merkez;
+        float s = MuharebeAlani.Yari - 4f;
+        yer = MuharebeAlani.Merkez + new Vector3(Mathf.Clamp(yerel.x, -s, s), 0f, Mathf.Clamp(yerel.z, -s, s));
+        Alay a = Alay.Olustur(kok.transform, onEk + ad, b.Key, o.taraf, o.OyuncununMu, b.Value, yer, ileri, o.moral, verim);
+        a.savunan = savunanMi;
+        a.siper = siper;
+        alaylar.Add(a);
     }
 
     // Tüfek dumanı ve namlu ateşi için tek bir parçacık sistemi
@@ -277,28 +396,56 @@ public class MuharebeYoneticisi : MonoBehaviour
         duman.Play();
     }
 
-    void AtesEt(Alay a)
+    void Parcacik(Vector3 yer, Color renk, float boy, float omur, Vector3 hiz)
     {
         if (duman == null) return;
         var ep = new ParticleSystem.EmitParams();
-        for (int i = 0; i < 2; i++)
+        ep.position = yer; ep.startColor = renk; ep.startSize = boy; ep.startLifetime = omur; ep.velocity = hiz;
+        duman.Emit(ep, 1);
+    }
+
+    // Tüfek ve makineli ateşi: namlu alevi ve barut dumanı
+    void AtesEt(Alay a)
+    {
+        bool makineli = a.tur == Alay.Tur.Makineli;
+        float yay = a.Genislik * 0.45f;
+        int dumanSayi = makineli ? 1 : 2, alevSayi = makineli ? 4 : 3;
+        for (int i = 0; i < dumanSayi; i++)
+            Parcacik(a.transform.position + a.transform.forward * (a.Derinlik * 0.5f + 0.4f) + a.transform.right * Random.Range(-yay, yay) + Vector3.up * 0.9f,
+                     new Color(0.86f, 0.86f, 0.82f, 0.45f), Random.Range(0.9f, 1.5f), Random.Range(2.2f, 3.5f),
+                     a.transform.forward * 0.4f + Random.insideUnitSphere * 0.15f);
+        for (int i = 0; i < alevSayi; i++)
+            Parcacik(a.transform.position + a.transform.forward * (a.Derinlik * 0.5f + 0.2f) + a.transform.right * Random.Range(-yay, yay)
+                     + Vector3.up * (makineli ? 0.4f : 0.75f), new Color(1f, 0.85f, 0.4f, 1f), makineli ? 0.22f : 0.3f, 0.12f, Vector3.zero);
+    }
+
+    // Top yaylım ateşi: bataryada kalın duman, hedefte toprak fışkırması
+    void TopAtesi(Alay a, Alay h)
+    {
+        for (int i = 0; i < 4; i++)
         {
-            ep.position = a.transform.position + a.transform.forward * 1.8f + a.transform.right * Random.Range(-2.8f, 2.8f) + Vector3.up * 0.9f;
-            ep.startColor = new Color(0.86f, 0.86f, 0.82f, 0.45f);
-            ep.startSize = Random.Range(0.9f, 1.5f);
-            ep.startLifetime = Random.Range(2.2f, 3.5f);
-            ep.velocity = a.transform.forward * 0.4f + Random.insideUnitSphere * 0.15f;
-            duman.Emit(ep, 1);
+            Vector3 namlu = a.transform.position + a.transform.right * ((i - 1.5f) * a.oz.araX) + a.transform.forward * (a.Derinlik * 0.5f + 0.8f) + Vector3.up * 0.6f;
+            Parcacik(namlu, new Color(0.9f, 0.88f, 0.84f, 0.6f), Random.Range(2.2f, 3.2f), Random.Range(3.5f, 5f), a.transform.forward * 0.6f + Vector3.up * 0.3f);
+            Parcacik(namlu, new Color(1f, 0.75f, 0.35f, 1f), 1.2f, 0.15f, Vector3.zero);
         }
         for (int i = 0; i < 3; i++)
         {
-            ep.position = a.transform.position + a.transform.forward * 1.5f + a.transform.right * Random.Range(-2.8f, 2.8f) + Vector3.up * 0.75f;
-            ep.startColor = new Color(1f, 0.85f, 0.4f, 1f);
-            ep.startSize = 0.3f;
-            ep.startLifetime = 0.12f;
-            ep.velocity = Vector3.zero;
-            duman.Emit(ep, 1);
+            Vector3 yer = h.transform.position + h.transform.right * Random.Range(-h.Genislik * 0.6f, h.Genislik * 0.6f)
+                        + h.transform.forward * Random.Range(-h.Derinlik, h.Derinlik);
+            yer = MuharebeAlani.Uzerinde(yer, 0.3f);
+            Parcacik(yer, new Color(1f, 0.6f, 0.25f, 1f), 1.6f, 0.18f, Vector3.zero);
+            for (int k = 0; k < 3; k++)
+                Parcacik(yer, new Color(0.42f, 0.34f, 0.24f, 0.75f), Random.Range(1.4f, 2.4f), Random.Range(1.5f, 2.5f),
+                         Vector3.up * Random.Range(1.5f, 3f) + Random.insideUnitSphere * 0.8f);
         }
+    }
+
+    // Kısa süreli savaş haberi (ekranın üstünde)
+    void Mesaj(string metin)
+    {
+        if (mesajYazisi == null) return;
+        mesajYazisi.text = metin;
+        mesajSure = 4f;
     }
 
     // ---------- Her kare ----------
@@ -309,7 +456,23 @@ public class MuharebeYoneticisi : MonoBehaviour
         if (!aktif) return;
 
         Girdi();
+        if (mesajYazisi != null) { mesajSure -= Time.unscaledDeltaTime; mesajYazisi.alpha = Mathf.Clamp01(mesajSure); }
         if (bitti) return;
+
+        if (dizilis)
+        {
+            // Diziliş: zaman akmaz, yalnızca yerleştirme
+            Ayristir();
+            foreach (Alay a in alaylar)
+            {
+                if (!a.oyuncunun) continue;
+                Vector3 p = DizilisIcinde(a.transform.position, a);
+                a.transform.position = p; a.hedefNokta = p; a.mevzi = p;
+            }
+            foreach (Alay a in alaylar) a.Gorsel(Time.deltaTime);
+            ArayuzuGuncelle();
+            return;
+        }
 
         float dt = Time.deltaTime;
         foreach (Alay a in alaylar) a.Hareket(dt);
@@ -327,31 +490,36 @@ public class MuharebeYoneticisi : MonoBehaviour
         BitisKontrol();
     }
 
-    // Alaylar iç içe girmesin
+    // Birlikler iç içe girmesin: aynı taraftakiler genişlikleri kadar aralık bırakır
     void Ayristir()
     {
         for (int i = 0; i < alaylar.Count; i++)
             for (int j = i + 1; j < alaylar.Count; j++)
             {
                 Alay a = alaylar[i], b = alaylar[j];
-                if (a.durum == Alay.Durum.Bitti || b.durum == Alay.Durum.Bitti) continue;
-                if (a.durum == Alay.Durum.Kacti || b.durum == Alay.Durum.Kacti) continue;
-                float min = a.oyuncunun == b.oyuncunun ? 5f : Alay.TemasMesafesi * 0.85f;
+                if (a.durum != Alay.Durum.Hazir || b.durum != Alay.Durum.Hazir) continue;
+                float min = a.oyuncunun == b.oyuncunun
+                          ? (Mathf.Max(a.Genislik, a.Derinlik) + Mathf.Max(b.Genislik, b.Derinlik)) * 0.5f + 0.8f
+                          : Alay.TemasMesafesi * 0.85f;
                 Vector3 f = b.transform.position - a.transform.position; f.y = 0f;
                 float d = f.magnitude;
                 if (d >= min) continue;
                 Vector3 it = (d < 0.01f ? Vector3.right : f / d) * (min - d) * 0.5f;
-                a.transform.position = MuharebeAlani.Uzerinde(a.transform.position - it);
-                b.transform.position = MuharebeAlani.Uzerinde(b.transform.position + it);
+                // Ağır toplar zor itilir; diğeri daha çok kayar
+                float pa = a.tur == Alay.Tur.Topcu ? 0.2f : 1f, pb = b.tur == Alay.Tur.Topcu ? 0.2f : 1f;
+                float top = pa + pb;
+                a.transform.position = MuharebeAlani.Uzerinde(a.transform.position - it * (2f * pa / top));
+                b.transform.position = MuharebeAlani.Uzerinde(b.transform.position + it * (2f * pb / top));
             }
     }
 
     // ---------- Çarpışma (yarım saniyede bir) ----------
 
+    readonly HashSet<Alay> sonGogusGoguse = new HashSet<Alay>();
+
     void Carpisma()
     {
         Dictionary<Alay, float> kayip = new Dictionary<Alay, float>();
-        HashSet<Alay> atesAltinda = new HashSet<Alay>();
         HashSet<Alay> gogusGoguse = new HashSet<Alay>();
 
         foreach (Alay a in alaylar)
@@ -363,51 +531,112 @@ public class MuharebeYoneticisi : MonoBehaviour
 
             if (yakinMesafe <= Alay.TemasMesafesi + 0.5f)
             {
-                // Göğüs göğüse (süngü)
+                // Göğüs göğüse (süngü, kılıç)
                 Alay h = (a.hedefAlay != null && a.hedefAlay.Savasabilir && Mesafe(a, a.hedefAlay) <= Alay.TemasMesafesi + 0.5f) ? a.hedefAlay : yakin;
-                float z = a.adam * 0.006f * a.verim * moralCarpani * Kanat(a, h) * (a.hucum ? 1.3f : 1f) * Random.Range(0.75f, 1.25f) / SiperEtkisi(h);
+                float kanat = Kanat(a, h);
+                float carp = a.hucum ? a.oz.hucumCarpani : 1f;
+                // Süvari, önden süngü duvarına çarpınca şok etkisini büyük ölçüde kaybeder
+                if (a.Atli && a.hucum && kanat <= 1f && h.tur == Alay.Tur.Piyade && !h.yuruyor) carp *= 0.55f;
+                // Topçu ve makineli mürettebatı yakın dövüşte çaresizdir
+                if (h.tur == Alay.Tur.Topcu || h.tur == Alay.Tur.Makineli) carp *= 1.5f;
+                float z = a.adam * a.oz.gogus * a.verim * moralCarpani * kanat * carp * Random.Range(0.75f, 1.25f) / SiperEtkisi(h);
                 Ekle(kayip, h, z);
                 gogusGoguse.Add(a); gogusGoguse.Add(h);
             }
-            else if (a.cephane > 0f)
+            else if (a.tur == Alay.Tur.Topcu)
             {
-                // Tüfek ateşi
-                Alay h = (a.hedefAlay != null && a.hedefAlay.Savasabilir && Mesafe(a, a.hedefAlay) <= Alay.AtisMenzili) ? a.hedefAlay
-                       : (yakinMesafe <= Alay.AtisMenzili ? yakin : null);
+                // Topçu kendi temposunda (3 saniyede bir) yaylım ateşi açar
+                if (a.cephane <= 0f || !a.Kurulu) continue;
+                a.atisSayaci += 0.5f;
+                if (a.atisSayaci < 3f) continue;
+                a.atisSayaci = 0f;
+                TopAtisi(a, yakin, yakinMesafe, kayip);
+            }
+            else if (a.cephane > 0f && !a.hucum && a.Kurulu)
+            {
+                // Tüfek ve makineli ateşi
+                Alay h = (a.hedefAlay != null && a.hedefAlay.Savasabilir && Mesafe(a, a.hedefAlay) <= a.Menzil) ? a.hedefAlay
+                       : (yakinMesafe <= a.Menzil ? yakin : null);
                 if (h == null) continue;
-                if (a.hucum) continue;   // hücumda koşan alay ateş etmez
                 float mesafe = Mesafe(a, h);
-                float isabet = 1.3f - 0.6f * mesafe / Alay.AtisMenzili;
+                float isabet = 1.3f - 0.6f * mesafe / a.Menzil;
                 float tepe = a.transform.position.y > h.transform.position.y + 1f ? 1.25f : 1f;
-                float z = a.adam * 0.0022f * a.verim * moralCarpani * isabet * tepe * (a.yuruyor ? 0.35f : 1f)
+                float hareket = a.yuruyor ? 0.35f : 1f;
+                float turCarpani = h.oz.atesAlma * (a.tur == Alay.Tur.Makineli && h.Atli ? 1.3f : 1f);
+                float z = a.adam * a.oz.atis * a.verim * moralCarpani * isabet * tepe * hareket * turCarpani
                           * Kanat(a, h) * Random.Range(0.75f, 1.25f) / SiperEtkisi(h);
                 Ekle(kayip, h, z);
-                atesAltinda.Add(h);
                 a.cephane -= 1f;
                 AtesEt(a);
             }
         }
 
-        // Kaçanlar kovalanırken kayıp verir
+        // Kaçanlar kovalanırken kayıp verir (süvari daha çok)
         foreach (Alay k in alaylar)
         {
             if (k.durum != Alay.Durum.Kacti) continue;
             foreach (Alay a in alaylar)
-                if (a.Savasabilir && a.oyuncunun != k.oyuncunun && Mesafe(a, k) < 5f) { Ekle(kayip, k, k.adam * 0.02f); break; }
+                if (a.Savasabilir && a.oyuncunun != k.oyuncunun && Mesafe(a, k) < (a.Atli ? 7f : 5f))
+                { Ekle(kayip, k, k.adam * (a.Atli ? 0.05f : 0.02f)); break; }
         }
 
-        // Kayıplar ve moral
+        // Kayıplar ve moral (karargâh yakınındaki birliklerin morali daha sağlam)
         foreach (Alay a in alaylar)
         {
             if (a.durum == Alay.Durum.Bitti) continue;
             float z = kayip.ContainsKey(a) ? Mathf.Min(kayip[a], a.adam) : 0f;
             a.adam -= z;
             if (a.durum != Alay.Durum.Hazir) continue;
-            if (z > 0f) a.moral -= z / Mathf.Max(1f, a.baslangic) * 100f * 0.9f;
-            if (gogusGoguse.Contains(a)) a.moral -= 0.3f;
-            if (z <= 0f && !gogusGoguse.Contains(a)) a.moral = Mathf.Min(100f, a.moral + 0.35f);
+            bool komutan = KomutanYakin(a);
+            float dayanim = komutan ? 0.7f : 1f;
+            if (z > 0f) a.moral -= z / Mathf.Max(1f, a.baslangic) * 100f * 0.9f * dayanim;
+            if (gogusGoguse.Contains(a)) a.moral -= 0.3f * dayanim;
+            if (z <= 0f && !gogusGoguse.Contains(a)) a.moral = Mathf.Min(100f, a.moral + (komutan ? 0.65f : 0.35f));
             if (a.moral < 15f || a.adam < a.baslangic * 0.2f) Bozul(a);
         }
+
+        sonGogusGoguse.Clear();
+        foreach (Alay a in gogusGoguse) sonGogusGoguse.Add(a);
+    }
+
+    void TopAtisi(Alay a, Alay yakin, float yakinMesafe, Dictionary<Alay, float> kayip)
+    {
+        bool uygun(Alay x, float m) { return x != null && x.Savasabilir && m >= a.oz.minMenzil && m <= a.Menzil; }
+        Alay h = null;
+        if (a.hedefAlay != null && uygun(a.hedefAlay, Mesafe(a, a.hedefAlay))) h = a.hedefAlay;
+        else if (uygun(yakin, yakinMesafe)) h = yakin;
+        else
+        {
+            // En yakın düşman çok yakınsa menzildeki başka bir hedefi dövebilir
+            float en = float.MaxValue;
+            foreach (Alay b in alaylar)
+            {
+                if (!b.Savasabilir || b.oyuncunun == a.oyuncunun) continue;
+                float m = Mesafe(a, b);
+                if (uygun(b, m) && m < en) { en = m; h = b; }
+            }
+        }
+        if (h == null) return;
+
+        float mesafe = Mesafe(a, h);
+        float isleyen = Mathf.Clamp01(a.adam / Mathf.Max(1f, a.baslangic) * 1.3f);   // mürettebat azaldıkça daha az top işler
+        float isabet = Mathf.Lerp(1.1f, 0.55f, mesafe / a.Menzil);
+        float yogunluk = h.yuruyor ? 0.8f : 1f;
+        float z = 26f * isleyen * a.verim * isabet * yogunluk * Random.Range(0.6f, 1.4f) / Mathf.Sqrt(SiperEtkisi(h));
+        Ekle(kayip, h, z);
+        h.moral -= 1.5f * isleyen;                         // top ateşinin sarsıntısı
+        foreach (Alay b in alaylar)                         // yakındaki birliklere sıçrayan şarapnel
+            if (b != h && b.Savasabilir && b.oyuncunun == h.oyuncunun && Mesafe(b, h) < 5f) Ekle(kayip, b, z * 0.3f);
+        a.cephane -= 1f;
+        TopAtesi(a, h);
+    }
+
+    bool KomutanYakin(Alay a)
+    {
+        if (a.tur == Alay.Tur.Karargah) return true;
+        foreach (Alay k in alaylar)
+            if (k.tur == Alay.Tur.Karargah && k.Savasabilir && k.oyuncunun == a.oyuncunun && Mesafe(a, k) < 14f) return true;
+        return false;
     }
 
     void Bozul(Alay a)
@@ -421,6 +650,14 @@ public class MuharebeYoneticisi : MonoBehaviour
             if (b.oyuncunun == a.oyuncunun) b.moral -= 8f;       // yanındaki kaçınca panik
             else b.moral = Mathf.Min(100f, b.moral + 4f);
         }
+        if (a.tur == Alay.Tur.Karargah)
+        {
+            // Komutanın düşmesi bütün orduyu sarsar
+            foreach (Alay b in alaylar) if (b.Savasabilir && b.oyuncunun == a.oyuncunun) b.moral -= 15f;
+            Mesaj(a.oyuncunun ? "<color=#f77><b>Karargâhımız dağıldı!</b> Bütün birliklerde moral sarsıldı.</color>"
+                              : "<color=#9f9><b>Düşman karargâhı dağıldı!</b> Düşmanın morali çöktü.</color>");
+        }
+        else Mesaj((a.oyuncunun ? "<color=#f99>" : "<color=#9f9>") + a.ad + " bozuldu ve kaçıyor!</color>");
     }
 
     static void Ekle(Dictionary<Alay, float> d, Alay a, float z) { d[a] = (d.ContainsKey(a) ? d[a] : 0f) + z; }
@@ -467,28 +704,85 @@ public class MuharebeYoneticisi : MonoBehaviour
     void YapayZeka()
     {
         bool dusmanSaldiriyor = !oyuncuSaldiriyor;
+        Vector3 geri = dusmanSaldiriyor ? Vector3.back : Vector3.forward;   // düşmanın kendi gerisi
+        Vector3 orta = Vector3.zero; int say = 0;
+        foreach (Alay a in alaylar)
+            if (!a.oyuncunun && a.Savasabilir && a.tur != Alay.Tur.Karargah) { orta += a.transform.position; say++; }
+        if (say > 0) orta /= say;
+
         foreach (Alay a in alaylar)
         {
             if (a.oyuncunun || !a.Savasabilir) continue;
             Alay e = EnYakinDusman(a, out float d);
             if (e == null) continue;
 
-            if (dusmanSaldiriyor)
+            switch (a.tur)
             {
-                if (a.hedefAlay == null || !a.hedefAlay.Savasabilir || Mesafe(a, a.hedefAlay) > d + 8f) { a.hedefAlay = e; a.hucum = false; }
-                float h = Mesafe(a, a.hedefAlay);
-                bool ustun = a.adam * a.moral > a.hedefAlay.adam * a.hedefAlay.moral * 1.3f;
-                if (h < Alay.AtisMenzili + 2f && (ustun || a.hedefAlay.moral < 40f || a.cephane <= 0f || sure > 240f)) a.hucum = true;
-            }
-            else
-            {
-                // Savunan mevzisini tutar; menzile gireni vurur, zayıflayana hücum eder
-                if (d <= Alay.AtisMenzili) { if (a.hedefAlay == null || !a.hedefAlay.Savasabilir) a.hedefAlay = e; }
-                else if (!a.hucum) { a.hedefAlay = null; a.hedefNokta = a.mevzi; }
-                if (d < 10f && (e.moral < 35f || a.cephane <= 0f)) { a.hedefAlay = e; a.hucum = true; }
-                if (a.hucum && d > 18f) { a.hucum = false; a.hedefAlay = null; a.hedefNokta = a.mevzi; }   // fazla açılma, geri dön
+                case Alay.Tur.Karargah:
+                    // Ordunun gerisinde durur; ancak saldırıya uğrarsa çarpışır
+                    if (d < 5f) { a.hedefAlay = e; a.hucum = true; }
+                    else if (say > 0) { a.hedefAlay = null; a.hucum = false; a.hedefNokta = MuharebeAlani.Uzerinde(orta + geri * 8f); }
+                    break;
+
+                case Alay.Tur.Topcu:
+                    a.hucum = false;
+                    if (d < a.oz.minMenzil + 3f) { a.hedefAlay = null; a.hedefNokta = MuharebeAlani.Uzerinde(a.transform.position + geri * 8f); }   // geri çekil
+                    else if (dusmanSaldiriyor) a.hedefAlay = e;            // menzile girene dek ilerle
+                    else if (d <= a.Menzil) a.hedefAlay = e;
+                    else { a.hedefAlay = null; a.hedefNokta = a.mevzi; }
+                    break;
+
+                case Alay.Tur.Makineli:
+                    a.hucum = false;
+                    if (dusmanSaldiriyor) a.hedefAlay = e;
+                    else if (d <= a.Menzil) a.hedefAlay = e;
+                    else { a.hedefAlay = null; a.hedefNokta = a.mevzi; }
+                    break;
+
+                case Alay.Tur.Suvari:
+                    SuvariKarari(a);
+                    break;
+
+                default:
+                    if (dusmanSaldiriyor)
+                    {
+                        if (a.hedefAlay == null || !a.hedefAlay.Savasabilir || Mesafe(a, a.hedefAlay) > d + 8f) { a.hedefAlay = e; a.hucum = false; }
+                        float h = Mesafe(a, a.hedefAlay);
+                        bool ustun = a.adam * a.moral > a.hedefAlay.adam * a.hedefAlay.moral * 1.3f;
+                        if (h < a.Menzil + 2f && (ustun || a.hedefAlay.moral < 40f || a.cephane <= 0f || sure > 240f)) a.hucum = true;
+                    }
+                    else
+                    {
+                        // Savunan mevzisini tutar; menzile gireni vurur, zayıflayana hücum eder
+                        if (d <= a.Menzil) { if (a.hedefAlay == null || !a.hedefAlay.Savasabilir) a.hedefAlay = e; }
+                        else if (!a.hucum) { a.hedefAlay = null; a.hedefNokta = a.mevzi; }
+                        if (d < 10f && (e.moral < 35f || a.cephane <= 0f)) { a.hedefAlay = e; a.hucum = true; }
+                        if (a.hucum && d > 18f) { a.hucum = false; a.hedefAlay = null; a.hedefNokta = a.mevzi; }   // fazla açılma, geri dön
+                    }
+                    break;
             }
         }
+    }
+
+    // Süvari fırsat kollar: topçu ve makineliye, çarpışmaya tutuşmuş birliklerin yanına, sarsılmış düşmana dalar
+    void SuvariKarari(Alay a)
+    {
+        if (a.hucum && a.hedefAlay != null && a.hedefAlay.Savasabilir) return;   // hücum başladıysa sürsün
+        Alay en = null; float enPuan = float.MaxValue;
+        foreach (Alay b in alaylar)
+        {
+            if (!b.Savasabilir || b.oyuncunun == a.oyuncunun) continue;
+            float puan = Mesafe(a, b);
+            if (b.tur == Alay.Tur.Topcu || b.tur == Alay.Tur.Makineli) puan -= 15f;
+            if (sonGogusGoguse.Contains(b)) puan -= 12f;
+            if (b.moral < 40f) puan -= 8f;
+            if (b.tur == Alay.Tur.Piyade && !sonGogusGoguse.Contains(b)) puan += 10f;   // dinç piyadeye önden dalma
+            if (puan < enPuan) { enPuan = puan; en = b; }
+        }
+        if (en == null) return;
+        bool firsat = en.tur == Alay.Tur.Topcu || en.tur == Alay.Tur.Makineli || sonGogusGoguse.Contains(en) || en.moral < 40f || sure > 150f;
+        if (firsat && Mesafe(a, en) < 50f) { a.hedefAlay = en; a.hucum = true; }
+        else { a.hedefAlay = null; a.hucum = false; a.hedefNokta = a.mevzi; }
     }
 
     // ---------- Oyuncunun girdisi ----------
@@ -501,7 +795,8 @@ public class MuharebeYoneticisi : MonoBehaviour
 
         if (k != null)
         {
-            if (k.spaceKey.wasPressedThisFrame) DuraklatDevam();
+            if (k.spaceKey.wasPressedThisFrame && !dizilis) DuraklatDevam();
+            if (dizilis && (k.enterKey.wasPressedThisFrame || k.numpadEnterKey.wasPressedThisFrame)) SavasiBaslat();
             if (k.hKey.wasPressedThisFrame) Hucum();
             if (k.xKey.wasPressedThisFrame) Dur();
             if (k.tabKey.wasPressedThisFrame) TumunuSec();
@@ -517,7 +812,7 @@ public class MuharebeYoneticisi : MonoBehaviour
             Alay alt = FaredekiAlay(fp, out _);
             dusmanUstunde = alt != null && !alt.oyuncunun && alt.Savasabilir;
         }
-        KilicImleci(dusmanUstunde);
+        KilicImleci(dusmanUstunde && !dizilis);
 
         // Sol tık: seç, sürükle: kutuyla seç
         if (m.leftButton.wasPressedThisFrame && !arayuzde) { surukleBaslangic = fp; surukleniyor = true; }
@@ -559,22 +854,33 @@ public class MuharebeYoneticisi : MonoBehaviour
             }
         }
 
-        // Sağ tık: yürü ya da saldır (iki kez: hücum)
+        // Sağ tık: düşmana saldır (iki kez: hücum) ya da yere bas, sürükleyerek yön ver, bırakınca yürü
         if (m.rightButton.wasPressedThisFrame && !arayuzde && secili.Count > 0)
         {
             Alay a = FaredekiAlay(fp, out Vector3 nokta);
             bool cift = Time.unscaledTime - sonSagTik < 0.4f;
             sonSagTik = Time.unscaledTime;
-            if (a != null && !a.oyuncunun && a.Savasabilir)
+            if (!dizilis && a != null && !a.oyuncunun && a.Savasabilir)
             {
                 bool hucum = cift && sonSagHedef == a;
-                foreach (Alay s in secili) { s.hedefAlay = a; s.hucum = hucum; }
+                foreach (Alay s in secili) { s.hedefAlay = a; s.hucum = hucum && s.tur != Alay.Tur.Topcu && s.tur != Alay.Tur.Makineli; s.sonBakis = Vector3.zero; }
                 sonSagHedef = a;
             }
             else if (nokta != Vector3.zero)
             {
-                YuruyusEmri(nokta, cift);
+                sagSurukle = true; sagBaslangic = nokta; sagCift = cift;
                 sonSagHedef = null;
+            }
+        }
+        if (sagSurukle)
+        {
+            Vector3 yon = SurukleYonu(fp);
+            OnizlemeCiz(yon);
+            if (!m.rightButton.isPressed)
+            {
+                sagSurukle = false;
+                OnizlemeGizle();
+                if (secili.Count > 0) YuruyusEmri(sagBaslangic, sagCift, yon);
             }
         }
     }
@@ -595,29 +901,125 @@ public class MuharebeYoneticisi : MonoBehaviour
         return en;
     }
 
-    // Seçili alaylar tıklanan yere, yürüyüş yönüne dik bir hat halinde dizilir
-    void YuruyusEmri(Vector3 nokta, bool kos)
+    // Fareyle sürüklenen yön (yeterince sürüklenmediyse sıfır)
+    Vector3 SurukleYonu(Vector2 fp)
+    {
+        Ray isin = kam.ScreenPointToRay(fp);
+        Plane duz = new Plane(Vector3.up, sagBaslangic);
+        if (!duz.Raycast(isin, out float t)) return Vector3.zero;
+        Vector3 f = isin.GetPoint(t) - sagBaslangic; f.y = 0f;
+        return f.magnitude > 2f ? f.normalized : Vector3.zero;
+    }
+
+    // Seçili birliklerin hattaki yerleri: yöne dik, genişliklerine göre yan yana
+    List<KeyValuePair<Alay, Vector3>> HatYerleri(Vector3 nokta, Vector3 yon)
+    {
+        Vector3 yan = Vector3.Cross(Vector3.up, yon);
+        List<Alay> sirali = new List<Alay>(secili);
+        sirali.Sort((p, q) => Vector3.Dot(p.transform.position, yan).CompareTo(Vector3.Dot(q.transform.position, yan)));
+        float toplam = -1.2f;
+        foreach (Alay a in sirali) toplam += a.Genislik + 1.2f;
+        float x = -toplam / 2f;
+        List<KeyValuePair<Alay, Vector3>> sonuc = new List<KeyValuePair<Alay, Vector3>>();
+        foreach (Alay a in sirali)
+        {
+            Vector3 yer = nokta + yan * (x + a.Genislik / 2f);
+            x += a.Genislik + 1.2f;
+            if (dizilis) yer = DizilisIcinde(yer, a);
+            else
+            {
+                Vector3 yerel = yer - MuharebeAlani.Merkez;
+                float s = MuharebeAlani.Yari - 3f;
+                yer = MuharebeAlani.Uzerinde(MuharebeAlani.Merkez + new Vector3(Mathf.Clamp(yerel.x, -s, s), 0f, Mathf.Clamp(yerel.z, -s, s)));
+            }
+            sonuc.Add(new KeyValuePair<Alay, Vector3>(a, yer));
+        }
+        return sonuc;
+    }
+
+    // Seçili birlikler tıklanan yere bir hat halinde gider; yön verildiyse varınca o yöne döner
+    void YuruyusEmri(Vector3 nokta, bool kos, Vector3 bakis)
     {
         Vector3 orta = Vector3.zero;
         foreach (Alay a in secili) orta += a.transform.position;
         orta /= secili.Count;
-        Vector3 yon = nokta - orta; yon.y = 0f;
-        if (yon.sqrMagnitude < 0.01f) yon = secili[0].transform.forward;
-        yon.Normalize();
-        Vector3 yan = Vector3.Cross(Vector3.up, yon);
-        List<Alay> sirali = new List<Alay>(secili);
-        sirali.Sort((p, q) => Vector3.Dot(p.transform.position, yan).CompareTo(Vector3.Dot(q.transform.position, yan)));
-        for (int i = 0; i < sirali.Count; i++)
+        Vector3 yon = bakis;
+        if (yon == Vector3.zero)
         {
-            Vector3 hedefYer = nokta + yan * (i - (sirali.Count - 1) / 2f) * 7.5f;
-            Vector3 yerel = hedefYer - MuharebeAlani.Merkez;
-            float s = MuharebeAlani.Yari - 3f;
-            hedefYer = MuharebeAlani.Merkez + new Vector3(Mathf.Clamp(yerel.x, -s, s), 0f, Mathf.Clamp(yerel.z, -s, s));
-            Alay a = sirali[i];
-            a.hedefAlay = null;
-            a.hucum = kos;
-            a.hedefNokta = MuharebeAlani.Uzerinde(hedefYer);
+            if (dizilis) yon = oyuncuSaldiriyor ? Vector3.forward : Vector3.back;
+            else
+            {
+                yon = nokta - orta; yon.y = 0f;
+                yon = yon.sqrMagnitude < 0.01f ? secili[0].transform.forward : yon.normalized;
+            }
         }
+        foreach (var hy in HatYerleri(nokta, yon))
+        {
+            Alay a = hy.Key;
+            a.hedefAlay = null;
+            a.hedefNokta = hy.Value;
+            a.sonBakis = bakis;
+            if (dizilis)
+            {
+                // Dizilişte anında yerleşir
+                a.transform.position = hy.Value;
+                a.transform.rotation = Quaternion.LookRotation(yon);
+                a.mevzi = hy.Value;
+                a.hucum = false;
+            }
+            else a.hucum = kos;
+        }
+    }
+
+    // Sağ tık sürüklenirken: yön oku ve birliklerin yerleşeceği yerlerin hayaleti
+    void OnizlemeCiz(Vector3 yon)
+    {
+        if (yon == Vector3.zero) { OnizlemeGizle(); return; }
+        if (yonOku == null) yonOku = YeniCizgi("YonOku", 0.35f);
+        yonOku.enabled = true;
+        Vector3 bas = sagBaslangic, son = sagBaslangic + yon * 6f;
+        yonOku.loop = false;
+        yonOku.positionCount = 8;
+        for (int i = 0; i < 8; i++) yonOku.SetPosition(i, MuharebeAlani.Uzerinde(Vector3.Lerp(bas, son, i / 7f), 0.3f));
+        yonOku.widthCurve = new AnimationCurve(new Keyframe(0f, 0.3f), new Keyframe(0.7f, 0.3f), new Keyframe(0.701f, 1.0f), new Keyframe(1f, 0f));
+
+        List<KeyValuePair<Alay, Vector3>> yerler = HatYerleri(sagBaslangic, yon);
+        while (hayaletler.Count < yerler.Count) hayaletler.Add(YeniCizgi("Hayalet", 0.15f));
+        Vector3 yan = Vector3.Cross(Vector3.up, yon);
+        for (int i = 0; i < hayaletler.Count; i++)
+        {
+            LineRenderer h = hayaletler[i];
+            if (i >= yerler.Count) { h.enabled = false; continue; }
+            Alay a = yerler[i].Key; Vector3 c = yerler[i].Value;
+            Vector3 sg = yan * (a.Genislik * 0.5f + 0.3f), il = yon * (a.Derinlik * 0.5f + 0.4f);
+            h.enabled = true;
+            h.loop = true;
+            h.positionCount = 4;
+            h.SetPosition(0, MuharebeAlani.Uzerinde(c + sg + il, 0.12f));
+            h.SetPosition(1, MuharebeAlani.Uzerinde(c + sg - il, 0.12f));
+            h.SetPosition(2, MuharebeAlani.Uzerinde(c - sg - il, 0.12f));
+            h.SetPosition(3, MuharebeAlani.Uzerinde(c - sg + il, 0.12f));
+        }
+    }
+
+    void OnizlemeGizle()
+    {
+        if (yonOku != null) yonOku.enabled = false;
+        foreach (LineRenderer h in hayaletler) if (h != null) h.enabled = false;
+    }
+
+    LineRenderer YeniCizgi(string ad, float kalinlik)
+    {
+        GameObject g = new GameObject(ad);
+        g.transform.SetParent(kok.transform, false);
+        LineRenderer lr = g.AddComponent<LineRenderer>();
+        lr.material = new Material(Shader.Find("Sprites/Default"));
+        lr.useWorldSpace = true;
+        lr.widthMultiplier = kalinlik;
+        lr.startColor = lr.endColor = new Color(1f, 0.85f, 0.35f, 0.75f);
+        lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        lr.enabled = false;
+        return lr;
     }
 
     void Sec(Alay a) { if (!secili.Contains(a)) secili.Add(a); a.SecimGoster(true); }
@@ -638,6 +1040,7 @@ public class MuharebeYoneticisi : MonoBehaviour
     {
         foreach (Alay a in secili)
         {
+            if (a.tur == Alay.Tur.Topcu || a.tur == Alay.Tur.Makineli) continue;   // ağır silahlar hücum etmez
             if (a.hedefAlay == null || !a.hedefAlay.Savasabilir) a.hedefAlay = EnYakinDusman(a, out _);
             a.hucum = a.hedefAlay != null;
         }
@@ -740,6 +1143,70 @@ public class MuharebeYoneticisi : MonoBehaviour
         Dugme(p, "Haritaya Dön", new Vector2(0.5f, 0f), new Vector2(0f, 70f), new Vector2(380f, 84f), Kapat, 32f);
     }
 
+    // ---------- Savaş öncesi diziliş ----------
+
+    // Oyuncunun birliklerini yerleştirebileceği alan (yerel z aralığı)
+    float DizilisMinZ { get { return oyuncuSaldiriyor ? -MuharebeAlani.Yari + 2f : 2f; } }
+    float DizilisMaxZ { get { return oyuncuSaldiriyor ? -12f : MuharebeAlani.Yari - 2f; } }
+
+    Vector3 DizilisIcinde(Vector3 p, Alay a)
+    {
+        Vector3 yerel = p - MuharebeAlani.Merkez;
+        float px = MuharebeAlani.Yari - 2f - a.Genislik * 0.5f, pz = a.Derinlik * 0.5f + 0.5f;
+        yerel.x = Mathf.Clamp(yerel.x, -px, px);
+        yerel.z = Mathf.Clamp(yerel.z, DizilisMinZ + pz, DizilisMaxZ - pz);
+        return MuharebeAlani.Uzerinde(MuharebeAlani.Merkez + new Vector3(yerel.x, 0f, yerel.z));
+    }
+
+    void DizilisBaslat()
+    {
+        dizilis = true;
+        // Yeşil diziliş alanı
+        GameObject g = new GameObject("DizilisAlani");
+        g.transform.SetParent(kok.transform, false);
+        dizilisCizgisi = g.AddComponent<LineRenderer>();
+        dizilisCizgisi.material = new Material(Shader.Find("Sprites/Default"));
+        dizilisCizgisi.useWorldSpace = true;
+        dizilisCizgisi.loop = true;
+        dizilisCizgisi.widthMultiplier = 0.3f;
+        dizilisCizgisi.startColor = dizilisCizgisi.endColor = new Color(0.45f, 1f, 0.45f, 0.7f);
+        dizilisCizgisi.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        float x = MuharebeAlani.Yari - 2f;
+        Vector2[] koseler = { new Vector2(-x, DizilisMinZ), new Vector2(x, DizilisMinZ), new Vector2(x, DizilisMaxZ), new Vector2(-x, DizilisMaxZ) };
+        List<Vector3> n = new List<Vector3>();
+        for (int k = 0; k < 4; k++)
+        {
+            Vector2 a = koseler[k], b = koseler[(k + 1) % 4];
+            int adim = Mathf.Max(2, Mathf.CeilToInt(Vector2.Distance(a, b) / 1.5f));
+            for (int i = 0; i < adim; i++)
+            {
+                Vector2 q = Vector2.Lerp(a, b, i / (float)adim);
+                n.Add(MuharebeAlani.Uzerinde(MuharebeAlani.Merkez + new Vector3(q.x, 0f, q.y), 0.2f));
+            }
+        }
+        dizilisCizgisi.positionCount = n.Count;
+        dizilisCizgisi.SetPositions(n.ToArray());
+
+        baslatDugmesi = Dugme(savasCanvas.transform, "Savaşı Başlat\n<size=60%>(Enter)</size>", new Vector2(0.5f, 0f), new Vector2(0f, 160f),
+                              new Vector2(400f, 96f), SavasiBaslat, 34f).gameObject;
+        baslatDugmesi.GetComponent<Image>().color = new Color(0.45f, 0.18f, 0.12f, 0.97f);
+    }
+
+    void SavasiBaslat()
+    {
+        if (!dizilis || bitti) return;
+        dizilis = false;
+        if (baslatDugmesi != null) Destroy(baslatDugmesi);
+        if (dizilisCizgisi != null) Destroy(dizilisCizgisi.gameObject);
+        foreach (Alay a in alaylar)
+        {
+            a.hedefNokta = a.transform.position;
+            a.mevzi = a.transform.position;
+            a.duranSure = 10f;
+        }
+        Mesaj("<color=#fc8><b>Savaş başladı!</b></color>");
+    }
+
     // ---------- Kılıç imleci ----------
 
     static Texture2D kilicDokusu;
@@ -826,6 +1293,9 @@ public class MuharebeYoneticisi : MonoBehaviour
 
         ArayuzYardimci.UstSeritOlustur(savasCanvas, 90f);
         ustYazi = Yazi(c.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -8f), new Vector2(1800f, 80f), 30f, TextAlignmentOptions.Center);
+        mesajYazisi = Yazi(c.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -100f), new Vector2(1600f, 60f), 32f, TextAlignmentOptions.Center);
+        mesajYazisi.outlineWidth = 0.2f;
+        mesajSure = 0f;
 
         float y = 50f;
         Dugme(c.transform, "Hücum!\n<size=60%>(H)</size>", new Vector2(0.5f, 0f), new Vector2(-575f, y), new Vector2(210f, 80f), Hucum);
@@ -837,11 +1307,14 @@ public class MuharebeYoneticisi : MonoBehaviour
         Dugme(c.transform, "Otomatik Bitir", new Vector2(0.5f, 0f), new Vector2(575f, y), new Vector2(210f, 80f), OtomatikBitir);
 
         seciliYazi = Yazi(c.transform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(24f, 110f), new Vector2(560f, 200f), 24f, TextAlignmentOptions.BottomLeft);
-        TMP_Text yardim = Yazi(c.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-24f, 110f), new Vector2(560f, 200f), 20f, TextAlignmentOptions.BottomRight);
+        TMP_Text yardim = Yazi(c.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-24f, 110f), new Vector2(600f, 260f), 20f, TextAlignmentOptions.BottomRight);
         yardim.text = "<color=#ccc>Sol tık: alay seç  ·  sürükle: kutu ile seç  ·  Shift: ekle\n"
                     + "Sağ tık: yürü / düşmana saldır  ·  çift sağ tık: koş / hücum\n"
+                    + "Sağ tıkı basılı tutup sürükle: birliğin bakacağı yönü belirle\n"
                     + "WASD: kaydır  ·  Q/E ya da orta tuş: döndür  ·  tekerlek: yakınlaş\n"
-                    + "Boşluk: duraklat  ·  Yandan ve arkadan vurmak çok daha etkili</color>";
+                    + "Boşluk: duraklat  ·  Yandan ve arkadan vurmak çok daha etkili\n"
+                    + "Topçu ve makineli durduktan sonra ateş eder  ·  Süvari yandan dalınca yıkıcıdır\n"
+                    + "Karargâhın yakınındaki birliklerin morali daha sağlamdır; karargâhı koru!</color>";
 
         GameObject kutu = new GameObject("SecimKutusu", typeof(RectTransform), typeof(Image));
         kutu.transform.SetParent(c.transform, false);
@@ -864,18 +1337,23 @@ public class MuharebeYoneticisi : MonoBehaviour
         }
         int kalan = Mathf.Max(0, Mathf.CeilToInt(SureSiniri - sure));
         string durum = savasDuraklatildi ? "<color=#fc8>DURAKLATILDI</color>" : "Hız x" + savasHizi;
-        ustYazi.text = "<b>" + hedef.sancakAdi + " Muharebesi</b>   |   <color=#f99>Biz: " + bizAdam + " (" + bizAlay + " alay)</color>"
-                     + "   |   <color=#9bf>" + TarafBilgi.Ad(oyuncuSaldiriyor ? savunan.taraf : saldiran.taraf) + ": " + onlarAdam + " (" + onlarAlay + " alay)</color>"
+        ustYazi.text = "<b>" + hedef.sancakAdi + " Muharebesi</b>   |   <color=#f99>Biz: " + bizAdam + " (" + bizAlay + " birlik)</color>"
+                     + "   |   <color=#9bf>" + TarafBilgi.Ad(oyuncuSaldiriyor ? savunan.taraf : saldiran.taraf) + ": " + onlarAdam + " (" + onlarAlay + " birlik)</color>"
                      + "   |   " + (oyuncuSaldiriyor ? "Saldırı süresi " : "Dayanılacak süre ") + (kalan / 60) + ":" + (kalan % 60).ToString("00")
                      + "   |   " + durum;
+        if (dizilis)
+            ustYazi.text = "<b>" + hedef.sancakAdi + " Muharebesi</b>   |   <color=#fc8><b>DİZİLİŞ</b></color>: birliklerini seç, sağ tıkla yeşil alanda yerleştir"
+                         + "   |   hazır olunca <b>Savaşı Başlat</b> (Enter)";
         if (hizYazisi != null) hizYazisi.text = "Hız x" + savasHizi;
 
         if (secili.Count == 0) { seciliYazi.text = "<color=#ccc>Alay seçilmedi.</color>"; return; }
         int adam = 0; float moral = 0f, cephane = 0f;
-        foreach (Alay a in secili) { adam += a.GorunenAdam; moral += a.moral; cephane += a.cephane; }
-        seciliYazi.text = "<b>" + (secili.Count == 1 ? secili[0].ad : secili.Count + " alay seçili") + "</b>\n"
+        foreach (Alay a in secili) { adam += a.GorunenAdam; moral += a.moral; cephane += a.cephane / a.oz.cephane; }
+        string baslik = secili.Count == 1 ? secili[0].ad + "  <size=80%><color=#ccc>(" + secili[0].oz.tip + ", menzil " + Mathf.RoundToInt(secili[0].Menzil) + ")</color></size>"
+                                          : secili.Count + " birlik seçili";
+        seciliYazi.text = "<b>" + baslik + "</b>\n"
                         + adam + " asker  ·  moral " + Mathf.RoundToInt(moral / secili.Count)
-                        + "  ·  cephane %" + Mathf.RoundToInt(cephane / secili.Count / 140f * 100f);
+                        + "  ·  cephane %" + Mathf.RoundToInt(cephane / secili.Count * 100f);
     }
 
     // ---------- Arayüz yardımcıları ----------
