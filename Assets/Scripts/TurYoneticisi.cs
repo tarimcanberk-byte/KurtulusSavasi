@@ -91,6 +91,8 @@ public class TurYoneticisi : MonoBehaviour
         if (EventSystem.current != null && EventSystem.current.currentSelectedGameObject != null)
             EventSystem.current.SetSelectedGameObject(null);
 
+        Gazete.Denetle();   // savaş ekranında biriken haberler
+
         // Savaş ekranı ya da muharebe kararı açıkken harita zamanı donar
         if (MuharebeYoneticisi.Mesgul) return;
 
@@ -119,7 +121,7 @@ public class TurYoneticisi : MonoBehaviour
 
     public void DuraklatDevam()
     {
-        if (oyunBitti || MuharebeYoneticisi.Mesgul) return;
+        if (oyunBitti || MuharebeYoneticisi.Mesgul || Gazete.Acik) return;
         duraklatildi = !duraklatildi;
         birikim = 0f;
         EkraniGuncelle();
@@ -166,11 +168,15 @@ public class TurYoneticisi : MonoBehaviour
 
         // 1) Tarihî olaylar (her biri oyunu duraklatır)
         foreach (string olay in TarihselOlaylar.Kontrol(tarih, this))
+        {
             Gunluk.Ekle(olay, true);
+            Gazete.Ekle(GazeteBasligi(olay), DuzYazi(olay), null, tarih);
+        }
         foreach (string haber in Komutanlar.GunIlerle(tarih))
             Gunluk.Ekle(haber, true);
         foreach (string haber in Meclis.GunIlerle(tarih))
             Gunluk.Ekle(haber, true);
+        Haberler.GunIlerle(tarih);
 
         // 2) Ordular yürür ve çarpışır
         foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None))
@@ -382,6 +388,19 @@ public class TurYoneticisi : MonoBehaviour
         }
         return true;
     }
+
+    // Tarihî olay metninden gazete başlığı: ilk kalın kısım ya da ilk cümle
+    static string GazeteBasligi(string olay)
+    {
+        int a = olay.IndexOf("<b>"), b = olay.IndexOf("</b>");
+        string bas = (a >= 0 && b > a) ? olay.Substring(a + 3, b - a - 3) : olay;
+        bas = DuzYazi(bas);
+        int nokta = bas.IndexOf(". ");
+        if (nokta > 0) bas = bas.Substring(0, nokta);
+        return bas.TrimEnd('.', '!', ' ');
+    }
+
+    static string DuzYazi(string s) { return System.Text.RegularExpressions.Regex.Replace(s, "<[^>]+>", ""); }
 
     // ---------- Ekran ----------
 

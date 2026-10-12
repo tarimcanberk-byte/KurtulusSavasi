@@ -478,7 +478,9 @@ public class Ordu : MonoBehaviour
                                    + "  <size=80%>ikmal: " + Ikmal.Aciklama(o.IkmalMesafesi) + "</size>";
             if (dusmanlar != "") durum += "\n<color=#ffb080>Komşu düşmanlar:</color>" + dusmanlar;
         }
-        string komutanSatiri = !OyuncununMu ? ""
+        string komutanSatiri = !OyuncununMu
+              ? (komutan != null ? "Komutan: <b>" + komutan.ad + "</b>  <size=80%>" + komutan.Degerler + "  —  " + komutan.OzellikMetni + "</size>\n"
+                                 : "<size=80%><color=#bbb>Komutanı bilinmiyor</color></size>\n")
             : komutan == null ? "<color=#f99>Komutan yok</color>  <size=80%>(Komutan Ata düğmesiyle seç)</size>\n"
             : "Komutan: <b>" + komutan.ad + "</b>  <size=80%>" + komutan.Degerler + "  —  " + komutan.OzellikMetni + "</size>\n";
         Komutan yoldaki = OyuncununMu ? Komutanlar.Yoldaki(this) : null;

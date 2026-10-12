@@ -12,6 +12,11 @@ public class Komutan
     public DateTime katilmaTarihi;   // Ankara'ya katıldığı tarih (öncesinde atanamaz)
     public string katilmaHaberi;
     public bool olumsuz;         // Mustafa Kemal ölemez
+    public Taraf taraf = Taraf.Turk;
+    public DateTime ayrilmaTarihi = DateTime.MaxValue;   // düşman komutanlarının görevden alınması
+    public string ayrilmaHaberi;
+    public bool gorevden;        // görevden alındı (oyundan çekildi)
+    public bool esir;
     public bool canli = true;
     public bool katildi;
     public int yaraliGun;
@@ -25,7 +30,8 @@ public class Komutan
     public bool Yolda { get { return yoldaHedef != null; } }
     public Sancak Bulundugu { get { return ordu != null && ordu.bulunduguSancak != null ? ordu.bulunduguSancak : konum; } }
 
-    public bool Musait { get { return canli && katildi && yaraliGun <= 0; } }
+    public bool Musait { get { return canli && !gorevden && katildi && yaraliGun <= 0; } }
+    public bool Turk { get { return taraf == Taraf.Turk; } }
     public bool Var(string ozellik) { return ozellikler.Contains(ozellik); }
 
     public string Degerler { get { return "Komuta " + komuta + " · Taktik " + taktik + " · İdare " + idare + " · Karizma " + karizma; } }
@@ -68,8 +74,50 @@ public static class Komutanlar
              "<b>Fahrettin Paşa (Altay) Millî Mücadele'ye katıldı.</b> Süvari komutanı olarak atanabilir.");
         Yeni("Yakup Şevki Paşa", "Yakup Şevki", 7, 7, 7, 6, 9, 4, "Tecrübeli", new DateTime(1920, 8, 1),
              "<b>Yakup Şevki Paşa Ankara'ya katıldı.</b> Komuta edebilir.");
+        // ---- Düşman komutanları (tarihler yaklaşık) ----
+        Dusman("General Leonidas Paraskevopulos", "Paraskevopulos", Taraf.Yunan, 6, 6, 6, 5, "Temkinli", bas, new DateTime(1920, 11, 25),
+               null, "<b>Yunan Anadolu Ordusu'nda komuta değişti:</b> General Paraskevopulos, Venizelos'un seçim yenilgisinin ardından görevden alındı.");
+        Dusman("General Anastasios Papulas", "Papulas", Taraf.Yunan, 7, 6, 7, 6, "Atılgan", new DateTime(1920, 11, 25), new DateTime(1922, 5, 23),
+               "<b>Yunan Anadolu Ordusu'nun başına General Anastasios Papulas getirildi.</b> Daha saldırgan bir dönem bekleniyor.",
+               "<b>Papulas görevden ayrıldı.</b> Yunan ordusunda büyük taarruzların bedeli ağır oldu.");
+        Dusman("General Nikolaos Trikupis", "Trikupis", Taraf.Yunan, 6, 7, 6, 5, "Tecrübeli", new DateTime(1921, 1, 1), DateTime.MaxValue,
+               "General Nikolaos Trikupis Anadolu'ya geldi; Yunan kolordularından birinin başına geçecek.");
+        Dusman("General Georgios Hacıanestis", "Hacıanestis", Taraf.Yunan, 5, 5, 4, 4, "Kararsız", new DateTime(1922, 5, 23), DateTime.MaxValue,
+               "<b>General Georgios Hacıanestis Yunan Anadolu Ordusu komutanı oldu.</b> Cephede emirleri İzmir'den veriyor.");
+        Dusman("General George Milne", "Milne", Taraf.Ingiliz, 7, 7, 8, 6, "Kurmay", bas, new DateTime(1920, 10, 1),
+               null, "İngiliz Karadeniz Ordusu'nda komuta değişti: General Milne ayrıldı.");
+        Dusman("General Charles Harington", "Harington", Taraf.Ingiliz, 7, 6, 8, 7, "Diplomat", new DateTime(1920, 10, 1), DateTime.MaxValue,
+               "General Charles Harington İngiliz işgal kuvvetlerinin komutasını aldı.");
+        Dusman("Albay Édouard Brémond", "Brémond", Taraf.Fransiz, 6, 6, 7, 5, "Tecrübeli", bas, new DateTime(1920, 9, 1),
+               null, "Kilikya'daki Fransız yönetiminde değişiklik: Albay Brémond görevden ayrıldı.");
+        Dusman("General Julien Dufieux", "Dufieux", Taraf.Fransiz, 7, 7, 6, 5, "Savunma Ustası", new DateTime(1920, 9, 1), DateTime.MaxValue,
+               "General Julien Dufieux Kilikya'daki Fransız kuvvetlerinin komutasını aldı.");
+        Dusman("General Tovmas Nazarbekyan", "Nazarbekyan", Taraf.Ermeni, 6, 6, 5, 6, "Savunma Ustası", bas, DateTime.MaxValue);
         Yeni("Nurettin Paşa", "Nurettin", 8, 7, 7, 5, 7, 4, "Sert Komutan", new DateTime(1920, 10, 1),
              "<b>Nurettin Paşa Millî Mücadele'ye katıldı.</b> Komuta edebilir.");
+    }
+
+    static void Dusman(string ad, string kisa, Taraf t, int ko, int ta, int id, int ka, string ozellik,
+                       DateTime katilma, DateTime ayrilma, string katilmaHaberi = null, string ayrilmaHaberi = null)
+    {
+        Komutan k = Yeni(ad, kisa, ko, ta, id, ka, 5, 5, ozellik, katilma, katilmaHaberi);
+        k.taraf = t;
+        k.ayrilmaTarihi = ayrilma;
+        k.ayrilmaHaberi = ayrilmaHaberi;
+    }
+
+    // Düşman tarafı: boştaki komutanlar o tarafın komutansız en büyük ordusuna geçer
+    public static void DusmanAtamalari()
+    {
+        Ordu[] ordular = UnityEngine.Object.FindObjectsByType<Ordu>(FindObjectsSortMode.None);
+        foreach (Komutan k in Liste)
+        {
+            if (k.Turk || !k.Musait || k.ordu != null) continue;
+            Ordu en = null;
+            foreach (Ordu o in ordular)
+                if (o.Yasiyor && o.taraf == k.taraf && o.komutan == null && (en == null || o.askerSayisi > en.askerSayisi)) en = o;
+            if (en != null) Ata(k, en);
+        }
     }
 
     public static Komutan Bul(string kisaAd)
@@ -94,6 +142,7 @@ public static class Komutanlar
         Ata(Bul("Refet"), OrduBul("3. Kolordu"));
         Ata(Bul("Kâzım Özalp"), OrduBul("61. Tümen"));
         Ata(Bul("Ali Çetinkaya"), OrduBul("57. Tümen"));
+        DusmanAtamalari();
     }
 
     static Ordu OrduBul(string ad)
@@ -125,7 +174,7 @@ public static class Komutanlar
     public static List<Komutan> Bostakiler()
     {
         List<Komutan> l = new List<Komutan>();
-        foreach (Komutan k in Liste) if (k.Musait && k.ordu == null && !k.Yolda) l.Add(k);
+        foreach (Komutan k in Liste) if (k.Turk && k.Musait && k.ordu == null && !k.Yolda) l.Add(k);
         return l;
     }
 
@@ -184,6 +233,13 @@ public static class Komutanlar
         foreach (Komutan k in Liste)
         {
             if (!k.canli) continue;
+            if (!k.gorevden && tarih >= k.ayrilmaTarihi)
+            {
+                k.gorevden = true;
+                if (k.ordu != null) Birak(k.ordu);
+                if (k.ayrilmaHaberi != null) haberler.Add(k.ayrilmaHaberi);
+                continue;
+            }
             if (!k.katildi && tarih >= k.katilmaTarihi)
             {
                 k.katildi = true;
@@ -217,6 +273,7 @@ public static class Komutanlar
                 if (k.yaraliGun == 0) haberler.Add(k.ad + " iyileşti ve yeniden göreve hazır.");
             }
         }
+        DusmanAtamalari();
         return haberler;
     }
 
@@ -243,6 +300,7 @@ public static class Komutanlar
         if (!saldiri && k.Var("Savunma Ustası")) c *= 1.12f;
         if (k.Var("Temkinli")) c *= saldiri ? 0.95f : 1.05f;
         if (karsi != null && karsi.taraf == Taraf.Ermeni && k.Var("Doğu Cephesi Komutanı")) c *= 1.10f;
+        if (k.Var("Kararsız")) c *= 0.93f;
         return c;
     }
 
@@ -299,6 +357,14 @@ public static class Komutanlar
                 kaybeden.ozellikler.Add("Temkinli");
                 h.Add("<color=#fc8>" + kaybeden.ad + " ağır yenilgilerden sonra <b>Temkinli</b> oldu (savunmada +%5, saldırıda −%5).</color>");
             }
+            // Ordusu dağılan düşman komutanı esir düşebilir
+            if (!kaybeden.Turk && kaybedenDagildi && kaybeden.canli && UnityEngine.Random.value < 0.3f)
+            {
+                kaybeden.canli = false; kaybeden.esir = true;
+                if (kaybeden.ordu != null) Birak(kaybeden.ordu);
+                h.Add("<color=#9f9><b>" + kaybeden.ad + " esir alındı!</b></color>");
+                return h;
+            }
             float olum = kaybedenKarargahDustu ? 0.20f : kaybedenDagildi ? 0.15f : 0.03f;
             float yara = kaybedenKarargahDustu ? 0.40f : kaybedenDagildi ? 0.35f : 0.10f;
             KaderZari(kaybeden, olum, yara, h);
@@ -322,7 +388,8 @@ public static class Komutanlar
             IsaretiKaldir(k);
             Ordu o = k.ordu;
             if (o != null) Birak(o);
-            h.Add("<color=#f66><b>" + k.ad + " şehit düştü!</b>" + (o != null ? " " + o.orduAdi + " komutansız kaldı." : "") + "</color>");
+            if (k.Turk) h.Add("<color=#f66><b>" + k.ad + " şehit düştü!</b>" + (o != null ? " " + o.orduAdi + " komutansız kaldı." : "") + "</color>");
+            else h.Add("<color=#9f9><b>Düşman komutanı " + k.ad + " çarpışmada öldü.</b></color>");
         }
         else if (z < olum + yara)
         {
@@ -330,8 +397,9 @@ public static class Komutanlar
             k.yaraliGun = UnityEngine.Random.Range(30, 61);
             Ordu o = k.ordu;
             if (o != null) Birak(o);
-            h.Add("<color=#fc8><b>" + k.ad + " yaralandı</b> (" + k.yaraliGun + " gün tedavi)."
+            if (k.Turk) h.Add("<color=#fc8><b>" + k.ad + " yaralandı</b> (" + k.yaraliGun + " gün tedavi)."
                   + (o != null ? " " + o.orduAdi + " komutansız kaldı; yeni bir komutan ata." : "") + "</color>");
+            else h.Add("<color=#9f9>Düşman komutanı " + k.ad + " yaralandı ve bir süre cepheden uzak kalacak.</color>");
         }
     }
 }

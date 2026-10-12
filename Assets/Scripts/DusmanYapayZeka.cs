@@ -99,6 +99,6 @@ public static class DusmanYapayZeka
         }
         foreach (var cift in enBuyuk)
             if (Diplomasi.SavastaMi(cift.Key))
-                cift.Value.askerSayisi += Takviye(cift.Key);
+                cift.Value.askerSayisi += Mathf.RoundToInt(Takviye(cift.Key) * Haberler.TakviyeCarpani(cift.Key));
     }
 }

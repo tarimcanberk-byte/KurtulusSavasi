@@ -79,7 +79,9 @@ public class Sancak : MonoBehaviour
 
     public void SahipDegistir(Taraf yeniSahip)
     {
+        Taraf eski = sahip;
         sahip = yeniSahip;
+        if (eski != yeniSahip) Haberler.SahipDegisti(this, eski, yeniSahip);
         RengiGuncelle();
     }
 

@@ -28,6 +28,8 @@ public class HaritaOlusturucu : MonoBehaviour
         TarihselOlaylar.Sifirla();
         Komutanlar.Sifirla();
         Meclis.Sifirla();
+        Haberler.Sifirla();
+        Gazete.Sifirla();
 
         Shader duz = Shader.Find("Universal Render Pipeline/Unlit");
         if (duz == null) duz = Shader.Find("Universal Render Pipeline/Lit");
