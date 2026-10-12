@@ -16,6 +16,8 @@ public class HaritaSecici : MonoBehaviour
 
     private Sancak seciliSancak;
     private Ordu seciliOrdu;
+    private Button komutanDugmesi;
+    private GameObject komutanPaneli;
     private Button toplaDugmesi;
     private Button birlestirDugmesi;
     private Button baskinDugmesi;
@@ -39,6 +41,7 @@ public class HaritaSecici : MonoBehaviour
         bekleDugmesi   = DugmeOlustur("BekleDugmesi",   "Bekle / Siper Kaz\n<size=60%>yürüyüşü durdurur</size>",          285f, () => EmirVer(Ordu.Emir.Bekle));
         baskinDugmesi  = DugmeOlustur("BaskinDugmesi",  "Baskın Yap\n<size=60%>düşmanı yıprat (haftada 1)</size>",        365f, BaskinModunuAc);
         birlestirDugmesi = DugmeOlustur("BirlestirDugmesi", "Orduları Birleştir",                                        445f, OrdulariBirlestir);
+        komutanDugmesi = DugmeOlustur("KomutanDugmesi", "Komutan Ata\n<size=60%>orduya komutan seç</size>",            525f, KomutanPaneliAc);
         GunlukPaneliOlustur();
         DugmeleriGuncelle();
     }
@@ -286,6 +289,8 @@ public class HaritaSecici : MonoBehaviour
         if (sinirDugmesi != null)   sinirDugmesi.gameObject.SetActive(orduVar);
         if (taarruzDugmesi != null) taarruzDugmesi.gameObject.SetActive(orduVar);
         if (bekleDugmesi != null)   bekleDugmesi.gameObject.SetActive(orduVar);
+        if (komutanDugmesi != null) komutanDugmesi.gameObject.SetActive(orduVar);
+        if (!orduVar) KomutanPaneliKapat();
         if (birlestirDugmesi != null)
             birlestirDugmesi.gameObject.SetActive(seciliOrdu != null && BizimOrdular(seciliOrdu.bulunduguSancak).Count > 1);
     }
@@ -343,6 +348,83 @@ public class HaritaSecici : MonoBehaviour
     // ---------- Ordu birleştirme ----------
 
     // Aynı sancaktaki bütün ordularımızı seçili orduda toplar
+    // ---------- Komutan atama ----------
+
+    void KomutanPaneliAc()
+    {
+        KomutanPaneliKapat();
+        if (seciliOrdu == null) return;
+        Canvas canvas = FindAnyObjectByType<Canvas>();
+        if (canvas == null) return;
+        Ordu ordu = seciliOrdu;
+        List<Komutan> bostakiler = Komutanlar.Bostakiler();
+
+        komutanPaneli = new GameObject("KomutanPaneli", typeof(RectTransform), typeof(UnityEngine.UI.Image));
+        komutanPaneli.transform.SetParent(canvas.transform, false);
+        RectTransform pr = komutanPaneli.GetComponent<RectTransform>();
+        pr.anchorMin = pr.anchorMax = new Vector2(0.5f, 0.5f);       // ekranın ortasında, bilgi panelini örtmesin
+        pr.pivot = new Vector2(0.5f, 0.5f);
+        float yukseklik = 100f + Mathf.Max(1, bostakiler.Count) * 82f + 70f;   // başlık + komutanlar + Kapat
+        pr.sizeDelta = new Vector2(680f, yukseklik);
+        pr.anchoredPosition = new Vector2(0f, 60f);
+        komutanPaneli.GetComponent<UnityEngine.UI.Image>().color = new Color(0.10f, 0.08f, 0.06f, 0.95f);
+
+        GameObject bg = new GameObject("Baslik", typeof(RectTransform));
+        bg.transform.SetParent(komutanPaneli.transform, false);
+        TextMeshProUGUI baslik = bg.AddComponent<TextMeshProUGUI>();
+        RectTransform br = baslik.rectTransform;
+        br.anchorMin = br.anchorMax = new Vector2(0.5f, 1f); br.pivot = new Vector2(0.5f, 1f);
+        br.anchoredPosition = new Vector2(0f, -12f); br.sizeDelta = new Vector2(600f, 80f);
+        baslik.fontSize = 24; baslik.alignment = TextAlignmentOptions.Top;
+        baslik.color = ArayuzYardimci.DugmeYazisi; baslik.raycastTarget = false;
+        baslik.text = "<b>" + ordu.orduAdi + " için komutan</b>\n<size=80%>Şu an: "
+                    + (ordu.komutan != null ? ordu.komutan.ad : "<color=#f99>komutan yok</color>") + "</size>";
+
+        float y = -100f;
+        if (bostakiler.Count == 0)
+        {
+            baslik.text += "\n\n<size=80%><color=#ccc>Boşta komutan yok. Yeni komutanlar tarihleri gelince Ankara'ya katılır.</color></size>";
+        }
+        foreach (Komutan k in bostakiler)
+        {
+            Komutan secilen = k;
+            GameObject d = TMP_DefaultControls.CreateButton(new TMP_DefaultControls.Resources());
+            d.transform.SetParent(komutanPaneli.transform, false);
+            RectTransform r = d.GetComponent<RectTransform>();
+            r.anchorMin = r.anchorMax = new Vector2(0.5f, 1f); r.pivot = new Vector2(0.5f, 1f);
+            r.sizeDelta = new Vector2(640f, 76f); r.anchoredPosition = new Vector2(0f, y);
+            y -= 82f;
+            TMP_Text t = d.GetComponentInChildren<TMP_Text>();
+            t.fontSize = 20;
+            t.text = "<b>" + k.ad + "</b>   <size=85%>" + k.Degerler + "</size>\n<size=75%>" + k.OzellikMetni + "</size>";
+            Button b = d.GetComponent<Button>();
+            b.onClick.AddListener(() =>
+            {
+                Komutanlar.Ata(secilen, ordu);
+                KomutanPaneliKapat();
+                BilgiGoster("<color=#9f9>" + secilen.ad + ", " + ordu.orduAdi + " komutanlığına atandı.</color>\n" + ordu.BilgiMetni());
+            });
+            ArayuzYardimci.DugmeStili(b);
+        }
+
+        GameObject kd = TMP_DefaultControls.CreateButton(new TMP_DefaultControls.Resources());
+        kd.transform.SetParent(komutanPaneli.transform, false);
+        RectTransform kr = kd.GetComponent<RectTransform>();
+        kr.anchorMin = kr.anchorMax = new Vector2(0.5f, 0f); kr.pivot = new Vector2(0.5f, 0f);
+        kr.sizeDelta = new Vector2(200f, 50f); kr.anchoredPosition = new Vector2(0f, 12f);
+        kd.GetComponentInChildren<TMP_Text>().text = "Kapat";
+        kd.GetComponentInChildren<TMP_Text>().fontSize = 22;
+        Button kb = kd.GetComponent<Button>();
+        kb.onClick.AddListener(KomutanPaneliKapat);
+        ArayuzYardimci.DugmeStili(kb);
+    }
+
+    void KomutanPaneliKapat()
+    {
+        if (komutanPaneli != null) Destroy(komutanPaneli);
+        komutanPaneli = null;
+    }
+
     void OrdulariBirlestir()
     {
         if (seciliOrdu == null) return;
@@ -358,6 +440,7 @@ public class HaritaSecici : MonoBehaviour
             toplamAsker += o.askerSayisi;
             moralToplami += o.moral * (float)o.askerSayisi;
             if (!o.HareketHakkiVar) hareketEdebilir = false;   // biri yorgunsa birleşik ordu da bu tur yürüyemez
+            if (ana.komutan == null && o.komutan != null) Komutanlar.Ata(o.komutan, ana);   // komutan birleşik orduya geçer
             o.YokOl();
             katilan++;
         }

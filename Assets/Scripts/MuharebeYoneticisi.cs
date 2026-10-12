@@ -44,6 +44,7 @@ public class MuharebeYoneticisi : MonoBehaviour
     ParticleSystem duman;
     bool bitti, savasDuraklatildi;
     bool dizilis;                       // savaş öncesi: oyuncu birliklerini yerleştirir
+    bool saldiranKarargahDustu, savunanKarargahDustu;
     GameObject baslatDugmesi;
     LineRenderer dizilisCizgisi;
     int savasHizi = 1;
@@ -156,8 +157,8 @@ public class MuharebeYoneticisi : MonoBehaviour
 
         string siper = d.tahkimat > 0 ? ", siper " + d.tahkimat + ". kademe" : "";
         string metin = "<size=130%><b>Muharebe: " + simdiki.hedef.sancakAdi + "</b></size>\n\n"
-            + "<b>Saldıran:</b> " + s.orduAdi + " <size=80%>(" + TarafBilgi.Ad(s.taraf) + ")</size> — " + s.askerSayisi + " asker, moral " + s.moral + "\n"
-            + "<b>Savunan:</b> " + d.orduAdi + " <size=80%>(" + TarafBilgi.Ad(d.taraf) + ")</size> — " + d.askerSayisi + " asker, moral " + d.moral + siper + "\n\n"
+            + "<b>Saldıran:</b> " + s.orduAdi + KomutanEki(s) + " <size=80%>(" + TarafBilgi.Ad(s.taraf) + ")</size> — " + s.askerSayisi + " asker, moral " + s.moral + "\n"
+            + "<b>Savunan:</b> " + d.orduAdi + KomutanEki(d) + " <size=80%>(" + TarafBilgi.Ad(d.taraf) + ")</size> — " + d.askerSayisi + " asker, moral " + d.moral + siper + "\n\n"
             + "<size=85%>Tahmini güç: saldırı " + Mathf.RoundToInt(s.Guc) + "  /  savunma " + Mathf.RoundToInt(d.SavunmaGucu)
             + "  <color=#bbb>(savunan arazi x" + d.bulunduguSancak.araziBonusu.ToString("0.0#") + ")</color></size>\n\n"
             + "<size=85%>Bizzat komuta edersen savaş ekranı açılır. Otomatik çözümde sonuç güç ve şansa bağlıdır.</size>";
@@ -200,6 +201,7 @@ public class MuharebeYoneticisi : MonoBehaviour
         sure = 0f; carpismaSayaci = 0f; zekaSayaci = 0f;
         alaylar.Clear(); secili.Clear();
         hayaletler.Clear(); yonOku = null; sagSurukle = false;
+        saldiranKarargahDustu = false; savunanKarargahDustu = false;
         Alay.Sifirla();
         Time.timeScale = 1f;
 
@@ -277,7 +279,8 @@ public class MuharebeYoneticisi : MonoBehaviour
     void AlaylariKur(Ordu o, bool saldiranMi, float z)
     {
         List<KeyValuePair<Alay.Tur, int>> komp = Kompozisyon(o);
-        float verim = Mathf.Clamp(o.Guc / Mathf.Max(1f, o.askerSayisi), 0.3f, 1.5f);
+        float verim = Mathf.Clamp(o.Guc / Mathf.Max(1f, o.askerSayisi), 0.3f, 1.5f)
+                    * Komutanlar.SavasCarpani(o, saldiranMi ? savunan : saldiran, saldiranMi);
         float siper = saldiranMi ? 1f : Mathf.Clamp(o.SavunmaGucu / Mathf.Max(1f, o.Guc), 1f, 2.2f);
         Vector3 ileri = saldiranMi ? Vector3.forward : Vector3.back;
         Vector3 sag = Vector3.Cross(Vector3.up, ileri);
@@ -348,7 +351,8 @@ public class MuharebeYoneticisi : MonoBehaviour
                   : b.Key == Alay.Tur.Suvari ? no + ". Süvari"
                   : b.Key == Alay.Tur.Topcu ? no + ". Topçu"
                   : b.Key == Alay.Tur.Makineli ? no + ". Makineli"
-                  : "Karargâh";
+                  : (o.komutan != null ? o.komutan.kisaAd + " Karargâhı" : "Karargâh");
+        if (b.Key == Alay.Tur.Suvari && o.komutan != null && o.komutan.Var("Süvari Komutanı")) verim *= 1.2f;   // süvari ustası
         Vector3 yerel = yer - MuharebeAlani.Merkez;
         float s = MuharebeAlani.Yari - 4f;
         yer = MuharebeAlani.Merkez + new Vector3(Mathf.Clamp(yerel.x, -s, s), 0f, Mathf.Clamp(yerel.z, -s, s));
@@ -588,7 +592,7 @@ public class MuharebeYoneticisi : MonoBehaviour
             a.adam -= z;
             if (a.durum != Alay.Durum.Hazir) continue;
             bool komutan = KomutanYakin(a);
-            float dayanim = komutan ? 0.7f : 1f;
+            float dayanim = komutan ? Komutanlar.MoralDayanimi(TarafKomutani(a)) : 1f;
             if (z > 0f) a.moral -= z / Mathf.Max(1f, a.baslangic) * 100f * 0.9f * dayanim;
             if (gogusGoguse.Contains(a)) a.moral -= 0.3f * dayanim;
             if (z <= 0f && !gogusGoguse.Contains(a)) a.moral = Mathf.Min(100f, a.moral + (komutan ? 0.65f : 0.35f));
@@ -635,8 +639,21 @@ public class MuharebeYoneticisi : MonoBehaviour
     {
         if (a.tur == Alay.Tur.Karargah) return true;
         foreach (Alay k in alaylar)
-            if (k.tur == Alay.Tur.Karargah && k.Savasabilir && k.oyuncunun == a.oyuncunun && Mesafe(a, k) < 14f) return true;
+            if (k.tur == Alay.Tur.Karargah && k.Savasabilir && k.oyuncunun == a.oyuncunun
+                && Mesafe(a, k) < Komutanlar.AuraYaricapi(TarafKomutani(a))) return true;
         return false;
+    }
+
+    // Birliğin bağlı olduğu haritadaki ordunun komutanı
+    Komutan TarafKomutani(Alay a)
+    {
+        Ordu o = a.savunan ? savunan : saldiran;
+        return o != null ? o.komutan : null;
+    }
+
+    static string KomutanEki(Ordu o)
+    {
+        return o.komutan != null ? " <size=80%>(" + o.komutan.ad + ")</size>" : "";
     }
 
     void Bozul(Alay a)
@@ -652,6 +669,7 @@ public class MuharebeYoneticisi : MonoBehaviour
         }
         if (a.tur == Alay.Tur.Karargah)
         {
+            if (a.savunan) savunanKarargahDustu = true; else saldiranKarargahDustu = true;
             // Komutanın düşmesi bütün orduyu sarsar
             foreach (Alay b in alaylar) if (b.Savasabilir && b.oyuncunun == a.oyuncunun) b.moral -= 15f;
             Mesaj(a.oyuncunun ? "<color=#f77><b>Karargâhımız dağıldı!</b> Bütün birliklerde moral sarsıldı.</color>"
@@ -1129,7 +1147,7 @@ public class MuharebeYoneticisi : MonoBehaviour
         int bizimKayip = oyuncuSaldiriyor ? sKayip : dKayip, onlarinKayip = oyuncuSaldiriyor ? dKayip : sKayip;
 
         string baslik = "<b>Meydan muharebesi: " + hedef.sancakAdi + "</b>  <size=80%>(bizzat komuta)</size>";
-        string rapor = Savas.SonucUygula(saldiran, savunan, hedef, saldiranKazandi, sKayip, dKayip, baslik);
+        string rapor = Savas.SonucUygula(saldiran, savunan, hedef, saldiranKazandi, sKayip, dKayip, baslik, saldiranKarargahDustu, savunanKarargahDustu);
         saldiran.MuharebeBitti(hedef);
         Gunluk.Ekle(rapor.Replace("\n", " "));
 

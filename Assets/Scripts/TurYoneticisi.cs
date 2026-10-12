@@ -161,6 +161,8 @@ public class TurYoneticisi : MonoBehaviour
         // 1) Tarihî olaylar (her biri oyunu duraklatır)
         foreach (string olay in TarihselOlaylar.Kontrol(tarih, this))
             Gunluk.Ekle(olay, true);
+        foreach (string haber in Komutanlar.GunIlerle(tarih))
+            Gunluk.Ekle(haber, true);
 
         // 2) Ordular yürür ve çarpışır
         foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None))
@@ -228,7 +230,7 @@ public class TurYoneticisi : MonoBehaviour
         foreach (Ordu o in FindObjectsByType<Ordu>(FindObjectsSortMode.None))
         {
             if (!o.Yasiyor) continue;
-            int kayip = o.IkmalYipranmasi(0.5f);
+            int kayip = o.IkmalYipranmasi(0.5f * Komutanlar.YipranmaCarpani(o));
             if (kayip > 0) yipranma[o.taraf] = (yipranma.ContainsKey(o.taraf) ? yipranma[o.taraf] : 0) + kayip;
         }
         foreach (var y in yipranma)

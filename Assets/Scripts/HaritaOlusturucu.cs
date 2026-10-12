@@ -26,6 +26,7 @@ public class HaritaOlusturucu : MonoBehaviour
         // Önceki oyundan kalan durumu temizle
         Diplomasi.Sifirla();
         TarihselOlaylar.Sifirla();
+        Komutanlar.Sifirla();
 
         Shader duz = Shader.Find("Universal Render Pipeline/Unlit");
         if (duz == null) duz = Shader.Find("Universal Render Pipeline/Lit");
@@ -43,6 +44,7 @@ public class HaritaOlusturucu : MonoBehaviour
         KomsulariKur();
         YollariCiz();
         OrdulariKur();
+        Komutanlar.Baslat();
     }
 
     void Start()

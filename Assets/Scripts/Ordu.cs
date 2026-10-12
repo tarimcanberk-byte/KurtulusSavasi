@@ -10,6 +10,7 @@ public class Ordu : MonoBehaviour
     public Sancak bulunduguSancak;
     public int askerSayisi = 5000;
     public int moral = 100;            // 0 - 100 arası
+    public Komutan komutan;            // ordunun komutanı (yoksa null)
 
     // ---------- Emirler ve hareket (gerçek zamanlı) ----------
     public enum Emir { Bekle, Git, SinirSavunmasi, Taarruz }
@@ -62,7 +63,7 @@ public class Ordu : MonoBehaviour
 
     // Savaş gücü: asker sayısı ve moralin birleşimi
     // İkmalden uzak ordu zayıflar
-    public float Guc           { get { return askerSayisi * (0.5f + moral / 200f) * Ikmal.Carpan(IkmalMesafesi); } }
+    public float Guc           { get { return askerSayisi * (0.5f + moral / 200f) * Ikmal.Carpan(IkmalMesafesi) * Komutanlar.GucCarpani(this); } }
 
     // Bulunduğu sancağı savunurken gücü: arazi ve siper avantajıyla
     public float SavunmaGucu   { get { return Guc * 1.2f * TahkimatCarpani * (bulunduguSancak != null ? bulunduguSancak.araziBonusu : 1f); } }
@@ -422,6 +423,7 @@ public class Ordu : MonoBehaviour
 
     public void YokOl()
     {
+        Komutanlar.Birak(this);            // komutan (sağsa) boşa düşer
         yasiyor = false;
         Sancak s = bulunduguSancak;
         gameObject.SetActive(false);
@@ -476,7 +478,11 @@ public class Ordu : MonoBehaviour
                                    + "  <size=80%>ikmal: " + Ikmal.Aciklama(o.IkmalMesafesi) + "</size>";
             if (dusmanlar != "") durum += "\n<color=#ffb080>Komşu düşmanlar:</color>" + dusmanlar;
         }
+        string komutanSatiri = !OyuncununMu ? ""
+            : komutan == null ? "<color=#f99>Komutan yok</color>  <size=80%>(Komutan Ata düğmesiyle seç)</size>\n"
+            : "Komutan: <b>" + komutan.ad + "</b>  <size=80%>" + komutan.Degerler + "  —  " + komutan.OzellikMetni + "</size>\n";
         return "<b>" + orduAdi + "</b>  (" + bulunduguSancak.sancakAdi + ")  —  " + TarafBilgi.Ad(taraf) + "\n"
+             + komutanSatiri
              + "Asker: " + askerSayisi + "   Moral: " + moral + "   <b>Güç: " + Mathf.RoundToInt(Guc) + "</b>"
              + "   Savunmada: " + Mathf.RoundToInt(SavunmaGucu) + "\n"
              + "Siper: " + tahkimat + "/" + MaxTahkimat + "   İkmal: " + Ikmal.Aciklama(IkmalMesafesi)

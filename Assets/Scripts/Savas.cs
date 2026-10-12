@@ -29,8 +29,8 @@ public static class Savas
         }
 
         // Savaş: iki tarafın gücü + şans. Savunan arazi avantajıyla %20 bonus alır.
-        float saldiriGucu = saldiran.Guc * Random.Range(0.8f, 1.2f);
-        float savunmaGucu = savunan.SavunmaGucu * Random.Range(0.8f, 1.2f);   // arazi + siper dahil
+        float saldiriGucu = saldiran.Guc * Komutanlar.SavasCarpani(saldiran, savunan, true) * Random.Range(0.8f, 1.2f);
+        float savunmaGucu = savunan.SavunmaGucu * Komutanlar.SavasCarpani(savunan, saldiran, false) * Random.Range(0.8f, 1.2f);   // arazi + siper dahil
         bool kazandi = saldiriGucu > savunmaGucu;
         float oran = Mathf.Min(saldiriGucu, savunmaGucu) / Mathf.Max(saldiriGucu, savunmaGucu);
 
@@ -43,7 +43,8 @@ public static class Savas
     // Bir muharebenin sonucunu haritaya işler (otomatik çözümde de, savaş ekranında da kullanılır):
     // kayıplar, moral, yenilenin çekilmesi ya da dağılması, kazananın sancağa girmesi.
     public static string SonucUygula(Ordu saldiran, Ordu savunan, Sancak hedef, bool kazandi,
-                                     int saldiranKayip, int savunanKayip, string baslik)
+                                     int saldiranKayip, int savunanKayip, string baslik,
+                                     bool saldiranKarargahDustu = false, bool savunanKarargahDustu = false)
     {
         Ordu kazanan = kazandi ? saldiran : savunan;
         Ordu kaybeden = kazandi ? savunan : saldiran;
@@ -51,6 +52,7 @@ public static class Savas
         int kaybedenKayip = kazandi ? savunanKayip : saldiranKayip;
         string kazananAd = kazanan.orduAdi, kaybedenAd = kaybeden.orduAdi;
         bool oyuncuSaldiriyor = saldiran.OyuncununMu;
+        Komutan kazananKomutan = kazanan.komutan, kaybedenKomutan = kaybeden.komutan;
 
         kazanan.KayipVer(kazananKayip);
         kaybeden.KayipVer(kaybedenKayip);
@@ -85,6 +87,11 @@ public static class Savas
                 }
             }
         }
+        // Komutanlar: tecrübe, yaralanma, şehadet
+        foreach (string h in Komutanlar.MuharebeSonucu(kazananKomutan, kaybedenKomutan, !kaybeden.Yasiyor,
+                     kazandi ? saldiranKarargahDustu : savunanKarargahDustu, kazandi ? savunanKarargahDustu : saldiranKarargahDustu))
+            Gunluk.Ekle(h, true);
+
         // Bizim için iyi sonuç yeşil, kötü sonuç kırmızı
         bool bizimIcinIyi = (kazandi == oyuncuSaldiriyor);
         return Renkli(rapor, bizimIcinIyi);
@@ -110,6 +117,7 @@ public static class Savas
 
         float carpan = 1f;
         if (baskinci.orduAdi.Contains("Kuva-yi Milliye")) carpan *= 1.5f;      // gerilla ustaları
+        carpan *= Komutanlar.BaskinCarpani(baskinci);                           // milis tecrübeli komutan
         if (hedefOrdu.IkmalMesafesi > Ikmal.GuvenliMesafe) carpan *= 1.5f;    // uzun ikmal hattı savunmasız
 
         int dusmanKayip = Mathf.RoundToInt(hedefOrdu.askerSayisi * Random.Range(0.04f, 0.08f) * carpan);
